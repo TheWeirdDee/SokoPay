@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Merchant {
+  id                    String    @id @default(cuid())
+  phone                 String    @unique
+  businessName          String
+  country               String    // 'NG' | 'KE'
+  walletAddress         String    @unique
+  encryptedPrivateKey   String
+  isVerified            Boolean   @default(false)
+  selfAgentId           String?
+  lowBalanceThreshold   Float     @default(5)
+  creditNotificationSent Boolean  @default(false)
+  createdAt             DateTime  @default(now())
+
+  paymentAccounts   PaymentAccount[]
+  transactions      Transaction[]
+  scheduledPayments ScheduledPayment[]
+  paymentRequests   PaymentRequest[]
+  withdrawalAccounts WithdrawalAccount[]
+  conversations     Conversation[]
+  notifications     Notification[]
+}
+
+model PaymentAccount {
+  id            String   @id @default(cuid())
+  merchantId    String
+  type          String   // 'bank' | 'opay' | 'mpesa'
+  accountNumber String?
+  bankCode      String?
+  bankName      String?
+  mpesaTill     String?
+  qrCodeUrl     String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  merchant      Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  merchantId      String
+  type            String   // 'incoming' | 'outgoing' | 'cash' | 'withdrawal'
+  direction       String   // 'in' | 'out'
+  amountLocal     Float?
+  currencyLocal   String?
+  amountCusd      Float?
+  exchangeRate    Float?
+  muonSignature   String?
+  muonRequestId   String?
+  txHash          String?
+  status          String   @default("confirmed")
+  method          String?  // 'bank' | 'opay' | 'mpesa' | 'cash' | 'x402'
+  counterpart     String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  merchant        Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model ScheduledPayment {
+  id               String    @id @default(cuid())
+  merchantId       String
+  recipient        String
+  recipientAddress String?
+  amountCusd       Float
+  description      String?
+  scheduledAt      DateTime
+  recurrence       String?   // null | 'daily' | 'weekly' | 'monthly'
+  executed         Boolean   @default(false)
+  txHash           String?
+  createdAt        DateTime  @default(now())
+  merchant         Merchant  @relation(fields: [merchantId], references: [id])
+}
+
+model PaymentRequest {
+  id            String   @id @default(cuid())
+  merchantId    String
+  customerName  String?
+  amountLocal   Float
+  currencyLocal String
+  description   String?
+  linkToken     String   @unique
+  status        String   @default("pending") // 'pending' | 'paid' | 'cancelled'
+  paidTxHash    String?
+  dueDate       DateTime?
+  createdAt     DateTime @default(now())
+  merchant      Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model WithdrawalAccount {
+  id            String   @id @default(cuid())
+  merchantId    String
+  type          String   // 'bank' | 'opay' | 'mpesa'
+  accountNumber String?
+  bankName      String?
+  bankCode      String?
+  mpesaNumber   String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  merchant      Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model Conversation {
+  id         String   @id @default(cuid())
+  merchantId String
+  role       String   // 'user' | 'assistant'
+  content    String
+  wasVoice   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  merchantId String
+  type       String
+  title      String
+  body       String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model OTPStore {
+  phone     String   @id
+  otp       String
+  expiresAt DateTime
+}
