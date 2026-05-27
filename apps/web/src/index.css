@@ -2,7 +2,7 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
-:root {
+@theme {
   --color-bg:           #FAF7F2;
   --color-bg-card:      #F2EDE4;
   --color-bg-dark:      #1A1208;
@@ -25,10 +25,21 @@
   --shadow-hover: 4px 4px 0px #C4622D;
 }
 
-body {
-  background: var(--color-bg);
+/* Base styles for the HTML and body */
+html, body {
+  background-color: var(--color-bg-dark); /* Rich dark background on desktop */
   color: var(--color-text);
   font-family: var(--font-body);
-  max-width: 430px;
-  margin: 0 auto;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
 }
+
+/* Center and frame the application on desktop (MiniPay style shell) */
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
