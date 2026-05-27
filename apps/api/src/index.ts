@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { initWebSocketServer } from './services/websocket';
 
 dotenv.config({ path: '../../.env' });
 
@@ -35,7 +37,10 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-app.listen(port, () => {
+const server = createServer(app);
+
+server.listen(port, () => {
   console.log(`SokoPay API listening on port ${port}`);
+  initWebSocketServer(server);
   startCronDaemon();
 });
