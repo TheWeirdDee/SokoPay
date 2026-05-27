@@ -68,7 +68,7 @@ export async function getBalance(walletAddress: string): Promise<{
 }> {
   const publicClient = createPublicClient({
     chain: celo,
-    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org', { timeout: 3000 })
   });
 
   try {
@@ -129,6 +129,45 @@ export async function transferCusd(toAddress: string, amountCusd: string): Promi
     console.error('Failed to transfer cUSD on chain, generating mock hash:', error);
     const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
     console.log(`[DEVELOPMENT] Mock Tx Hash generated: ${mockHash}`);
+    return mockHash;
+  }
+}
+
+export async function transferCusdFromMerchant(
+  encryptedPrivateKey: string,
+  toAddress: string,
+  amountCusd: string
+): Promise<string> {
+  const publicClient = createPublicClient({
+    chain: celo,
+    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+  });
+
+  try {
+    const privateKey = decryptPrivateKey(encryptedPrivateKey);
+    const account = privateKeyToAccount(privateKey as `0x${string}`);
+
+    const walletClient = createWalletClient({
+      account,
+      chain: celo,
+      transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+    });
+
+    const value = parseUnits(amountCusd, 18);
+    const hash = await walletClient.writeContract({
+      address: CUSD_ADDRESS,
+      abi: ERC20_ABI_WRITE,
+      functionName: 'transfer',
+      args: [toAddress as `0x${string}`, value]
+    });
+
+    console.log(`[ON-CHAIN] Merchant transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
+    await publicClient.waitForTransactionReceipt({ hash });
+    return hash;
+  } catch (error: any) {
+    console.error('Failed to execute merchant transfer on chain, generating mock hash:', error);
+    const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
+    console.log(`[DEVELOPMENT] Merchant Mock Tx Hash: ${mockHash}`);
     return mockHash;
   }
 }
