@@ -21,6 +21,9 @@ model Merchant {
   paymentPasswordHash   String?
   lowBalanceThreshold   Float     @default(5)
   creditNotificationSent Boolean  @default(false)
+  dailySummaryEnabled   Boolean   @default(true)
+  weeklyReportEnabled   Boolean   @default(true)
+  paymentAlertsEnabled  Boolean   @default(true)
   createdAt             DateTime  @default(now())
 
   paymentAccounts   PaymentAccount[]
