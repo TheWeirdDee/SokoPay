@@ -17,6 +17,8 @@ model Merchant {
   encryptedPrivateKey   String
   isVerified            Boolean   @default(false)
   selfAgentId           String?
+  passwordHash          String?
+  paymentPasswordHash   String?
   lowBalanceThreshold   Float     @default(5)
   creditNotificationSent Boolean  @default(false)
   createdAt             DateTime  @default(now())
