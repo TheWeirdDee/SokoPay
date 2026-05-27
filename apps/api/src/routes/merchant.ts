@@ -86,6 +86,10 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
         country: merchant.country,
         walletAddress: merchant.walletAddress,
         isVerified: merchant.isVerified,
+        lowBalanceThreshold: merchant.lowBalanceThreshold,
+        dailySummaryEnabled: merchant.dailySummaryEnabled,
+        weeklyReportEnabled: merchant.weeklyReportEnabled,
+        paymentAlertsEnabled: merchant.paymentAlertsEnabled
       },
       bankAccount: {
         accountNumber: bankAccount.accountNumber,
@@ -234,6 +238,70 @@ router.post('/toggle-country', requireAuth, async (req: AuthRequest, res: Respon
   } catch (error: any) {
     console.error('Error toggling country:', error);
     res.status(500).json({ error: error.message || 'Failed to toggle country' });
+  }
+});
+
+// PATCH /merchant/update - Update settings and profile details
+router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) {
+      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    }
+
+    const { 
+      businessName, 
+      lowBalanceThreshold, 
+      dailySummaryEnabled, 
+      weeklyReportEnabled, 
+      paymentAlertsEnabled 
+    } = req.body;
+
+    const updateData: any = {};
+    
+    if (businessName !== undefined && businessName.trim() !== '') {
+      updateData.businessName = businessName.trim();
+    }
+    
+    if (lowBalanceThreshold !== undefined && !isNaN(parseFloat(lowBalanceThreshold))) {
+      updateData.lowBalanceThreshold = parseFloat(lowBalanceThreshold);
+    }
+    
+    if (dailySummaryEnabled !== undefined) {
+      updateData.dailySummaryEnabled = !!dailySummaryEnabled;
+    }
+    
+    if (weeklyReportEnabled !== undefined) {
+      updateData.weeklyReportEnabled = !!weeklyReportEnabled;
+    }
+    
+    if (paymentAlertsEnabled !== undefined) {
+      updateData.paymentAlertsEnabled = !!paymentAlertsEnabled;
+    }
+
+    const updated = await prisma.merchant.update({
+      where: { id: merchantId },
+      data: updateData
+    });
+
+    res.json({
+      success: true,
+      merchant: {
+        id: updated.id,
+        phone: updated.phone,
+        businessName: updated.businessName,
+        country: updated.country,
+        walletAddress: updated.walletAddress,
+        isVerified: updated.isVerified,
+        lowBalanceThreshold: updated.lowBalanceThreshold,
+        dailySummaryEnabled: updated.dailySummaryEnabled,
+        weeklyReportEnabled: updated.weeklyReportEnabled,
+        paymentAlertsEnabled: updated.paymentAlertsEnabled
+      }
+    });
+  } catch (error: any) {
+    console.error('Error updating merchant profile:', error);
+    res.status(500).json({ error: error.message || 'Failed to update settings' });
   }
 });
 
