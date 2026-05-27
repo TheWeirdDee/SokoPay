@@ -59,11 +59,60 @@ export default function Dashboard() {
   const [isSubmittingCash, setIsSubmittingCash] = useState(false);
   const [cashError, setCashError] = useState('');
 
+  const [stats, setStats] = useState({ count: 0, totalVolumeLocal: 0 });
+  const [secondsSinceUpdate, setSecondsSinceUpdate] = useState(0);
+
+  const fetchDashboardSilent = async () => {
+    try {
+      const response = await api.get('/merchant/me');
+      setData(response.data);
+      setSecondsSinceUpdate(0);
+    } catch (err) {
+      console.error('Silent dashboard update failed:', err);
+    }
+  };
+
+  const playRegisterSound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      // Note 1
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(880, now); // A5
+      gain1.gain.setValueAtTime(0.08, now);
+      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.1);
+
+      // Note 2
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1318.51, now + 0.08); // E6
+      gain2.gain.setValueAtTime(0.12, now + 0.08);
+      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.35);
+    } catch (e) {
+      console.warn('AudioContext failed to play sound:', e);
+    }
+  };
+
   useEffect(() => {
     async function fetchDashboard() {
       try {
         const response = await api.get('/merchant/me');
         setData(response.data);
+        setSecondsSinceUpdate(0);
       } catch (err: any) {
         console.error(err);
         setError(err.response?.data?.error || 'Failed to load dashboard data.');
@@ -77,6 +126,62 @@ export default function Dashboard() {
 
     fetchDashboard();
   }, [navigate]);
+
+  // Rate timer check
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSecondsSinceUpdate(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // WebSocket Connection
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
+
+    const connectWs = () => {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const wsUrl = baseUrl.replace(/^http/, 'ws');
+      
+      console.log('[WEBSOCKET] Connecting to:', wsUrl);
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'STATS_UPDATE' && message.stats) {
+            setStats(message.stats);
+          } else if (message.type === 'NEW_TRANSACTION') {
+            playRegisterSound();
+            fetchDashboardSilent();
+          }
+        } catch (err) {
+          console.error('[WEBSOCKET] Parse error:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('[WEBSOCKET] Connection closed. Reconnecting in 5s...');
+        reconnectTimeout = setTimeout(connectWs, 5000);
+      };
+
+      ws.onerror = (err) => {
+        console.warn('[WEBSOCKET] Error:', err);
+        ws?.close();
+      };
+    };
+
+    connectWs();
+
+    return () => {
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, []);
 
   const handleRecordCash = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -200,6 +305,20 @@ export default function Dashboard() {
           {/* Left Column: Greeting, Balance/Earnings, Chart, and Quick Actions */}
           <div className="flex-1 w-full space-y-6">
             
+            {/* Live activity feed banner */}
+            <div className="bg-[#FAF7F2] border-2 border-[#1A1208] p-3 rounded-lg shadow-[3px_3px_0px_#1A1208] flex items-center justify-between gap-4 select-none w-full flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#5C6B3A] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#5C6B3A]"></span>
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6B55]">Live Activity Feed</span>
+              </div>
+              <div className="font-mono text-[11px] font-black text-[#1A1208]">
+                {stats.count || 0} transactions processed · ₦{formatCurrency(stats.totalVolumeLocal || 0)} received
+              </div>
+            </div>
+
             {/* Greeting & Balance Card */}
             <section 
               className="bg-[#1A1208] text-[#FAF7F2] p-6 rounded-[16px] relative overflow-hidden w-full shadow-card border border-[#DDD5C5]"
@@ -252,6 +371,14 @@ export default function Dashboard() {
                   <p className="text-[#7A6B55] font-mono text-sm mt-1.5">
                     = {todayEarnings.cusd !== '0.00' ? Number(todayEarnings.cusd).toFixed(2) : Number(balance.cusd).toFixed(2)} cUSD
                   </p>
+                  
+                  <div className="mt-3 flex justify-between items-center text-[10px] text-[#7A6B55] font-mono bg-white/5 px-3 py-1.5 rounded-lg border border-white/5 select-none max-w-full">
+                    <span className="font-bold">Live Rate: {currencySymbol}{formatCurrency(data.rate)} per cUSD</span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#5C6B3A] animate-pulse"></span>
+                      Updated {secondsSinceUpdate === 0 ? 'just now' : `${secondsSinceUpdate}s ago`}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Week bar chart */}
@@ -398,7 +525,7 @@ export default function Dashboard() {
                         </div>
                         {tx.txHash ? (
                           <a 
-                            href={`https://8004scan.io/agent/${merchant.walletAddress}`} 
+                            href={`https://celoscan.io/tx/${tx.txHash}`} 
                             target="_blank" 
                             rel="noreferrer"
                             className="text-[#C4622D] hover:underline flex items-center gap-1 text-xs font-mono font-bold"
