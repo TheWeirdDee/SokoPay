@@ -233,4 +233,87 @@ router.post('/execute', requireAuth, async (req: AuthRequest, res: Response) => 
   }
 });
 
+// DELETE /withdraw/accounts/:id - Unlink/delete withdrawal account
+router.delete('/accounts/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    const { id } = req.params;
+    if (!merchantId) {
+      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    }
+
+    const account = await prisma.withdrawalAccount.findFirst({
+      where: { id, merchantId }
+    });
+
+    if (!account) {
+      return res.status(404).json({ error: 'Withdrawal account not found' });
+    }
+
+    await prisma.withdrawalAccount.delete({
+      where: { id }
+    });
+
+    // If we deleted the default account, make another default if possible
+    if (account.isDefault) {
+      const remaining = await prisma.withdrawalAccount.findFirst({
+        where: { merchantId }
+      });
+      if (remaining) {
+        await prisma.withdrawalAccount.update({
+          where: { id: remaining.id },
+          data: { isDefault: true }
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Withdrawal account deleted successfully'
+    });
+  } catch (error: any) {
+    console.error('Error deleting withdrawal account:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete account' });
+  }
+});
+
+// PATCH /withdraw/accounts/:id/default - Set withdrawal account as default
+router.patch('/accounts/:id/default', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    const { id } = req.params;
+    if (!merchantId) {
+      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    }
+
+    const account = await prisma.withdrawalAccount.findFirst({
+      where: { id, merchantId }
+    });
+
+    if (!account) {
+      return res.status(404).json({ error: 'Withdrawal account not found' });
+    }
+
+    // Set all other accounts to non-default
+    await prisma.withdrawalAccount.updateMany({
+      where: { merchantId, isDefault: true },
+      data: { isDefault: false }
+    });
+
+    // Set this one to default
+    const updated = await prisma.withdrawalAccount.update({
+      where: { id },
+      data: { isDefault: true }
+    });
+
+    res.json({
+      success: true,
+      account: updated
+    });
+  } catch (error: any) {
+    console.error('Error setting default withdrawal account:', error);
+    res.status(500).json({ error: error.message || 'Failed to set default account' });
+  }
+});
+
 export { router as withdrawRouter };
