@@ -41,17 +41,38 @@ export default function Transactions() {
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
   const [currencySymbol, setCurrencySymbol] = useState('₦');
 
+  // Load cached transactions on initial mount for offline-first fallback
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('sokopay_cached_txs');
+      const cachedStats = localStorage.getItem('sokopay_cached_stats');
+      if (cached) {
+        setTransactions(JSON.parse(cached));
+        setIsLoading(false); // Skip skeleton loading if cache is available
+      }
+      if (cachedStats) {
+        setStats(JSON.parse(cachedStats));
+      }
+    } catch (e) {
+      console.warn('Failed to parse cached transactions:', e);
+    }
+  }, []);
+
   // Load first page or reset when filters change
   useEffect(() => {
     async function loadTransactions() {
-      setIsLoading(true);
+      // Only show loader if we don't have cached data yet
+      const cached = localStorage.getItem('sokopay_cached_txs');
+      if (!cached) {
+        setIsLoading(true);
+      }
       setError('');
       try {
         // Fetch merchant details first to resolve currency context
         const profileRes = await api.get('/merchant/me');
         const country = profileRes.data.merchant.country;
         setCurrencySymbol(country === 'KE' ? 'KSh' : '₦');
-
+ 
         const params: any = {
           page: 1,
           limit: 10
@@ -62,12 +83,20 @@ export default function Transactions() {
         if (searchQuery.trim() !== '') {
           params.search = searchQuery;
         }
-
+ 
         const res = await api.get('/transactions', { params });
         setTransactions(res.data.transactions);
         setStats(res.data.stats || { totalInflow: 0, totalOutflow: 0, totalCash: 0 });
         setTotalPages(res.data.pagination.totalPages);
         setPage(1);
+
+        // Update local cache
+        try {
+          localStorage.setItem('sokopay_cached_txs', JSON.stringify(res.data.transactions));
+          localStorage.setItem('sokopay_cached_stats', JSON.stringify(res.data.stats || { totalInflow: 0, totalOutflow: 0, totalCash: 0 }));
+        } catch (e) {
+          console.warn('Could not update cache:', e);
+        }
       } catch (err: any) {
         console.error(err);
         setError(err.response?.data?.error || 'Failed to load transaction history.');
@@ -75,7 +104,7 @@ export default function Transactions() {
         setIsLoading(false);
       }
     }
-
+ 
     loadTransactions();
   }, [filterType, searchQuery]);
 
