@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- Rounded App Icon Background (SokoPay Brand Dark Brown) -->
+  <rect width="512" height="512" rx="120" fill="#1A1208"/>
+  
+  <!-- Centered Logo Mark (Scaled 3x) -->
+  <g transform="translate(106, 106) scale(3)">
+    <!-- Top Curve (Forward C) - Brand Cream -->
+    <path
+      d="M 75 24 H 48 C 34 24 24 34 24 48 H 40"
+      stroke="#FAF7F2"
+      stroke-width="16"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <!-- Bottom Curve (Backward C) - Brand Orange -->
+    <path
+      d="M 25 76 H 52 C 66 76 76 66 76 52 H 60"
+      stroke="#C4622D"
+      stroke-width="16"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>
