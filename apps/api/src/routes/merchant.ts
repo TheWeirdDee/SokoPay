@@ -110,4 +110,131 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.get('/qr', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) {
+      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    }
+
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: merchantId },
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    // Auto-create accounts if missing
+    let bankAccount = await prisma.paymentAccount.findFirst({
+      where: { merchantId, type: 'bank' }
+    });
+    if (!bankAccount && merchant.country === 'NG') {
+      const randomAcc = '99' + Math.floor(10000000 + Math.random() * 90000000).toString();
+      bankAccount = await prisma.paymentAccount.create({
+        data: {
+          merchantId,
+          type: 'bank',
+          accountNumber: randomAcc,
+          bankName: 'Providus Bank',
+          bankCode: '101',
+          isDefault: true
+        }
+      });
+    }
+
+    let opayAccount = await prisma.paymentAccount.findFirst({
+      where: { merchantId, type: 'opay' }
+    });
+    if (!opayAccount && merchant.country === 'NG') {
+      const opayNumber = merchant.phone.replace('+', '');
+      opayAccount = await prisma.paymentAccount.create({
+        data: {
+          merchantId,
+          type: 'opay',
+          accountNumber: opayNumber,
+          isDefault: false
+        }
+      });
+    }
+
+    let mpesaAccount = await prisma.paymentAccount.findFirst({
+      where: { merchantId, type: 'mpesa' }
+    });
+    if (!mpesaAccount && merchant.country === 'KE') {
+      const tillNumber = Math.floor(100000 + Math.random() * 900000).toString();
+      mpesaAccount = await prisma.paymentAccount.create({
+        data: {
+          merchantId,
+          type: 'mpesa',
+          mpesaTill: tillNumber,
+          isDefault: true
+        }
+      });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const paymentLink = `${frontendUrl}/p/${merchant.id}`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(paymentLink)}`;
+
+    res.json({
+      success: true,
+      merchant: {
+        businessName: merchant.businessName,
+        country: merchant.country,
+        isVerified: merchant.isVerified
+      },
+      paymentLink,
+      qrCodeUrl,
+      accountDetails: {
+        bank: bankAccount ? {
+          bankName: bankAccount.bankName,
+          accountNumber: bankAccount.accountNumber
+        } : null,
+        opay: opayAccount ? {
+          accountNumber: opayAccount.accountNumber
+        } : null,
+        mpesa: mpesaAccount ? {
+          mpesaTill: mpesaAccount.mpesaTill
+        } : null
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching merchant QR details:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch QR details' });
+  }
+});
+
+router.post('/toggle-country', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) {
+      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    }
+
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: merchantId }
+    });
+
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    const newCountry = merchant.country === 'KE' ? 'NG' : 'KE';
+    const updated = await prisma.merchant.update({
+      where: { id: merchantId },
+      data: { country: newCountry }
+    });
+
+    res.json({
+      success: true,
+      country: updated.country,
+      message: `Country toggled to ${updated.country}`
+    });
+  } catch (error: any) {
+    console.error('Error toggling country:', error);
+    res.status(500).json({ error: error.message || 'Failed to toggle country' });
+  }
+});
+
 export { router as merchantRouter };
