@@ -10,7 +10,9 @@ import {
   CheckCircle,
   Loader2,
   Landmark,
-  Send
+  Send,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 interface Message {
@@ -81,6 +83,29 @@ export default function Chat() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [error, setError] = useState('');
+  const [isMuted, setIsMuted] = useState(false);
+  const [merchantName, setMerchantName] = useState("Amaka");
+  const isFirstLoad = useRef(true);
+  const hasSpokenIntro = useRef(false);
+
+  const speakMessage = (content: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis || isMuted) return;
+
+    try {
+      window.speechSynthesis.cancel();
+      
+      const parsed = parseMessageContent(content);
+      const textToSpeak = parsed.text;
+
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.rate = 0.95; 
+      utterance.pitch = 1.0;
+      
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error('Speech synthesis error:', e);
+    }
+  };
   
   // Chat Context States (for approvals)
   const [accounts, setAccounts] = useState<WithdrawalAccount[]>([]);
@@ -118,7 +143,10 @@ export default function Chat() {
 
   const fetchMerchantAndBalance = async () => {
     try {
-      await api.get('/merchant/me');
+      const response = await api.get('/merchant/me');
+      if (response.data.success && response.data.merchant) {
+        setMerchantName(response.data.merchant.businessName);
+      }
     } catch (err: any) {
       console.error('Error fetching merchant in chat:', err);
     }
@@ -181,7 +209,27 @@ export default function Chat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    
+    if (messages.length === 0) return;
+    if (isFirstLoad.current) {
+      isFirstLoad.current = false;
+      return;
+    }
+    
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+      speakMessage(lastMsg.content);
+    }
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (merchantName && messages.length === 0 && !hasSpokenIntro.current && !isMuted) {
+      hasSpokenIntro.current = true;
+      setTimeout(() => {
+        speakMessage(`Good morning ${merchantName}! You made 0 Naira yesterday. Your best day this week was — well, today is day one. Let's change that!`);
+      }, 1000);
+    }
+  }, [merchantName, messages, isMuted]);
 
   const handleSendMessage = async (textToSend: string) => {
     if (!textToSend.trim() || isTyping) return;
@@ -681,6 +729,29 @@ export default function Chat() {
             </div>
           </div>
         </div>
+
+        <button
+          onClick={() => {
+            if (!isMuted) {
+              window.speechSynthesis?.cancel();
+            }
+            setIsMuted(!isMuted);
+          }}
+          className="px-3 py-1 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-all shadow-[2px_2px_0px_#1A1208] text-xs active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 text-[#1A1208]"
+          title={isMuted ? "Unmute Voice" : "Mute Voice"}
+        >
+          {isMuted ? (
+            <>
+              <VolumeX className="w-3.5 h-3.5 text-[#B5271E]" />
+              <span className="font-mono uppercase tracking-wider font-extrabold">Muted</span>
+            </>
+          ) : (
+            <>
+              <Volume2 className="w-3.5 h-3.5 text-[#5C6B3A]" />
+              <span className="font-mono uppercase tracking-wider font-extrabold">Voice On</span>
+            </>
+          )}
+        </button>
       </header>
 
       {/* Error message */}
@@ -696,14 +767,14 @@ export default function Chat() {
           <div className="h-full flex flex-col justify-center items-center text-center text-[#7A6B55] max-w-sm mx-auto space-y-4">
             <Bot className="w-12 h-12 text-[#C4622D] animate-bounce" />
             <div>
-              <h2 className="font-display font-bold text-lg text-[#1A1208]">SokoPay Merchant Assistant</h2>
-              <p className="text-xs mt-1.5 leading-relaxed">
-                Ahoj! I am your shop financial agent. You can ask me questions about your sales, check wallet balances, or record sales in Pidgin or Swahili!
+              <h2 className="font-display font-bold text-lg text-[#1A1208]">Good morning, {merchantName}!</h2>
+              <p className="text-xs mt-1.5 leading-relaxed font-semibold text-[#1A1208]">
+                "You made ₦0 yesterday. Your best day this week was — well, today is day one. Let's change that 💪"
               </p>
             </div>
             <div className="w-full text-left bg-[#F2EDE4] p-3 rounded-lg border border-[#DDD5C5] text-[11px] font-semibold space-y-1">
-              <p className="text-[#1A1208] font-bold">Try saying:</p>
-              <p className="italic">"How much moni I make today?"</p>
+              <p className="text-[#1A1208] font-bold">Try asking me:</p>
+              <p className="italic">"How body? How much moni I make today?"</p>
               <p className="italic">"Show me my Celo balance"</p>
               <p className="italic">"What are my recent transactions?"</p>
             </div>
