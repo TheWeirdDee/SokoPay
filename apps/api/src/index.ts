@@ -5,7 +5,8 @@ import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { initWebSocketServer } from './services/websocket';
 
-dotenv.config({ path: '../../.env' });
+import path from 'path';
+dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
 const app = express();
 const port = process.env.PORT || 3000;
