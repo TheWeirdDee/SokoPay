@@ -94,14 +94,43 @@ export default function Chat() {
       const isSwahili = /jambo|habari|mambo|asante/i.test(textToSpeak);
       const languageCode = isSwahili ? 'sw-KE' : 'en-US';
 
-      const res = await api.post('/agent/speak', { text: textToSpeak, languageCode });
-      if (res.data.success && res.data.audioContent) {
-        const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
-        const audio = new Audio(audioUrl);
-        audio.play().catch(e => console.error('Audio play failed:', e));
+      let success = false;
+      try {
+        const res = await api.post('/agent/speak', { text: textToSpeak, languageCode });
+        if (res.data.success && res.data.audioContent) {
+          const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
+          const audio = new Audio(audioUrl);
+          await audio.play();
+          success = true;
+        }
+      } catch (err) {
+        console.warn('Backend TTS failed, attempting client-side fallback:', err);
+      }
+
+      if (!success) {
+        // Fallback: Web Speech API (speechSynthesis)
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel(); // Cancel any ongoing speech
+          const utterance = new SpeechSynthesisUtterance(textToSpeak);
+          utterance.lang = languageCode;
+          
+          // Try to select a regional voice if possible
+          const voices = window.speechSynthesis.getVoices();
+          if (voices && voices.length > 0) {
+            const matchingVoice = voices.find(v => 
+              v.lang.toLowerCase().startsWith(isSwahili ? 'sw' : 'en')
+            );
+            if (matchingVoice) {
+              utterance.voice = matchingVoice;
+            }
+          }
+          window.speechSynthesis.speak(utterance);
+        } else {
+          console.warn('Web Speech API (speechSynthesis) is not supported in this browser.');
+        }
       }
     } catch (e) {
-      console.warn('Google Cloud TTS failed, falling back to silent operations:', e);
+      console.warn('Speech synthesis failed entirely:', e);
     }
   };
   
