@@ -50,10 +50,10 @@ interface DashboardData {
 export default function Dashboard() {
   const { 
     profile, 
-    balance, 
-    recentTransactions, 
-    todayEarnings, 
-    rate, 
+    balance: cachedBalance, 
+    recentTransactions: cachedRecentTransactions, 
+    todayEarnings: cachedTodayEarnings, 
+    rate: cachedRate, 
     loadingProfile, 
     fetchProfile, 
     updateBalance 
@@ -123,10 +123,10 @@ export default function Dashboard() {
     if (profile) {
       setData({
         merchant: profile,
-        balance: balance || { cusd: '0.00', celo: '0.00', local: '0.00', currency: profile.country === 'KE' ? 'KES' : 'NGN' },
-        todayEarnings: todayEarnings || { local: '0.00', cusd: '0.00' },
-        recentTransactions: recentTransactions || [],
-        rate: rate || (profile.country === 'KE' ? 150 : 1500)
+        balance: cachedBalance || { cusd: '0.00', celo: '0.00', local: '0.00', currency: profile.country === 'KE' ? 'KES' : 'NGN' },
+        todayEarnings: cachedTodayEarnings || { local: '0.00', cusd: '0.00' },
+        recentTransactions: cachedRecentTransactions || [],
+        rate: cachedRate || (profile.country === 'KE' ? 150 : 1500)
       });
       setIsLoading(false);
     } else if (!loadingProfile) {
@@ -138,7 +138,7 @@ export default function Dashboard() {
         }
       });
     }
-  }, [profile, balance, recentTransactions, todayEarnings, rate, loadingProfile, navigate]);
+  }, [profile, cachedBalance, cachedRecentTransactions, cachedTodayEarnings, cachedRate, loadingProfile, navigate]);
 
   // Rate timer check
   useEffect(() => {
