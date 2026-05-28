@@ -48,9 +48,20 @@ export default function QR() {
   const [copiedText, setCopiedText] = useState('');
 
   async function fetchQRData() {
+    const cached = localStorage.getItem('sokopay_qr_details');
+    if (cached) {
+      try {
+        setQrDetails(JSON.parse(cached));
+        return;
+      } catch (e) {
+        console.warn('Failed to parse cached QR details, refetching...');
+      }
+    }
+
     try {
       const response = await api.get('/merchant/qr');
       setQrDetails(response.data);
+      localStorage.setItem('sokopay_qr_details', JSON.stringify(response.data));
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.error || 'Failed to load QR details.');
@@ -68,6 +79,19 @@ export default function QR() {
 
   useEffect(() => {
     async function loadData() {
+      const cached = localStorage.getItem('sokopay_qr_details');
+      if (cached) {
+        try {
+          setQrDetails(JSON.parse(cached));
+          setIsLoading(false);
+          // fetch invoices in background silently
+          fetchInvoices();
+          return;
+        } catch (e) {
+          // ignore
+        }
+      }
+
       setIsLoading(true);
       await Promise.all([fetchQRData(), fetchInvoices()]);
       setIsLoading(false);
