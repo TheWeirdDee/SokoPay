@@ -14,15 +14,10 @@ import {
   Save, 
   Sparkles,
   Loader2,
-  MessageCircle,
-  FileText,
   User,
   Shield,
   CheckCircle,
-  WifiOff,
-  Database,
-  ChevronDown,
-  ChevronUp
+  WifiOff
 } from 'lucide-react';
 
 interface MerchantProfile {
@@ -113,9 +108,6 @@ export default function Settings() {
   // General States
   const [copied, setCopied] = useState(false);
   const [isTogglingCountry, setIsTogglingCountry] = useState(false);
-
-  // Roadmap Expand State
-  const [showRoadmap, setShowRoadmap] = useState(true);
 
   async function fetchProfile() {
     try {
