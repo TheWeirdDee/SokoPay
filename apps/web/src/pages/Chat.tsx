@@ -25,16 +25,6 @@ interface Message {
   createdAt: string;
 }
 
-interface WithdrawalAccount {
-  id: string;
-  type: string;
-  accountNumber: string | null;
-  bankName: string | null;
-  bankCode: string | null;
-  mpesaNumber: string | null;
-  isDefault: boolean;
-}
-
 // Helpers to parse tags and extract JSON from model response
 function extractJson(raw: string) {
   const start = raw.indexOf('{');
@@ -79,7 +69,7 @@ function parseMessageContent(content: string) {
 
 export default function Chat() {
   const navigate = useNavigate();
-  const { profile: merchant, withdrawalAccounts: accounts, fetchAccounts, updateBalance } = useCache();
+  const { profile: merchant, withdrawalAccounts: accounts, fetchAccounts, updateBalance, loadingAccounts } = useCache();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
