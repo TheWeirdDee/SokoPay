@@ -28,7 +28,7 @@ interface PreviewData {
 
 export default function Withdraw() {
   const navigate = useNavigate();
-  const { profile: merchant, balance, withdrawalAccounts: accounts, fetchAccounts, updateBalance } = useCache();
+  const { profile: merchant, balance, withdrawalAccounts: accounts, fetchAccounts, updateBalance, loadingAccounts } = useCache();
 
   // Link Account Form State
   const [showAddForm, setShowAddForm] = useState(false);
