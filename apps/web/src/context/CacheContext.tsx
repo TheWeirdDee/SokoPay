@@ -7,6 +7,8 @@ interface CacheContextProps {
   recentTransactions: any[];
   withdrawalAccounts: any[];
   transactions: any[];
+  todayEarnings: { local: string; cusd: string } | null;
+  rate: number | null;
   
   loadingProfile: boolean;
   loadingAccounts: boolean;
@@ -28,6 +30,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [withdrawalAccounts, setWithdrawalAccounts] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [todayEarnings, setTodayEarnings] = useState<{ local: string; cusd: string } | null>(null);
+  const [rate, setRate] = useState<number | null>(null);
 
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
@@ -42,6 +46,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
     setRecentTransactions([]);
     setWithdrawalAccounts([]);
     setTransactions([]);
+    setTodayEarnings(null);
+    setRate(null);
     hasFetchedProfile.current = false;
     if (balanceIntervalRef.current) {
       clearInterval(balanceIntervalRef.current);
@@ -53,7 +59,18 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
   const fetchProfile = async (force = false) => {
     // If cached and not forced, return cached instantly
     if (profile && !force) {
-      return { profile, balance, recentTransactions };
+      // Trigger a background silent refresh to get updated stats
+      api.get('/merchant/me').then(res => {
+        if (res.data.success) {
+          setProfile(res.data.merchant);
+          setBalance(res.data.balance);
+          setRecentTransactions(res.data.recentTransactions || []);
+          setTodayEarnings(res.data.todayEarnings);
+          setRate(res.data.rate);
+        }
+      }).catch(err => console.error('Background profile refresh failed:', err));
+
+      return { profile, balance, recentTransactions, todayEarnings, rate };
     }
 
     const showSkeleton = !profile;
@@ -67,6 +84,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
         setProfile(res.data.merchant);
         setBalance(res.data.balance);
         setRecentTransactions(res.data.recentTransactions || []);
+        setTodayEarnings(res.data.todayEarnings);
+        setRate(res.data.rate);
         hasFetchedProfile.current = true;
         return res.data;
       }
@@ -85,6 +104,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
       if (res.data.success) {
         setBalance(res.data.balance);
         setRecentTransactions(res.data.recentTransactions || []);
+        setTodayEarnings(res.data.todayEarnings);
+        setRate(res.data.rate);
       }
     } catch (err) {
       console.error('Failed to poll balance updates:', err);
@@ -188,6 +209,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
       recentTransactions,
       withdrawalAccounts,
       transactions,
+      todayEarnings,
+      rate,
       loadingProfile,
       loadingAccounts,
       loadingTransactions,
