@@ -57,6 +57,9 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch/Get profile from cache or load it
   const fetchProfile = async (force = false) => {
+    const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
+    if (!token) return null;
+
     // If cached and not forced, return cached instantly
     if (profile && !force) {
       // Trigger a background silent refresh to get updated stats
@@ -99,6 +102,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
   // Background balance updates
   const updateBalance = async () => {
+    const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
+    if (!token) return;
     try {
       const res = await api.get('/merchant/me');
       if (res.data.success) {
@@ -114,6 +119,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch withdrawal accounts
   const fetchAccounts = async (force = false) => {
+    const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
+    if (!token) return [];
     if (withdrawalAccounts.length > 0 && !force) {
       // Background update silently
       api.get('/withdraw/accounts').then(res => {
@@ -146,6 +153,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch full transaction history
   const fetchTransactions = async (force = false) => {
+    const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
+    if (!token) return [];
     if (transactions.length > 0 && !force) {
       // Background update silently
       api.get('/transactions').then(res => {
@@ -179,7 +188,7 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
   // Polling setup for balance updates (every 30 seconds)
   useEffect(() => {
-    const token = localStorage.getItem('sokopay_token');
+    const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
     if (token) {
       // First load profile immediately
       fetchProfile();
