@@ -42,4 +42,28 @@ html, body {
   display: flex;
   flex-direction: column;
 }
-
+/* Speaker toggle visual state styles */
+.speaker-btn { position: relative; }
+.speaker-btn.playing { color: #C4622D; }
+.speaker-btn.playing::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid #C4622D;
+  border-radius: 50%;
+  animation: speakPulse 1.5s ease-in-out infinite;
+}
+.speaker-btn.muted::before {
+  content: '';
+  position: absolute;
+  width: 140%;
+  height: 1.5px;
+  background: #C4622D;
+  top: 50%;
+  left: -20%;
+  transform: rotate(-45deg);
+}
+@keyframes speakPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
