@@ -153,7 +153,96 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
       return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
     }
 
-    const { message } = req.body;
+    const { message, isInit } = req.body;
+
+    if (isInit || message === '__INIT__') {
+      // Data-driven opening greeting generation
+      const merchant = await prisma.merchant.findUnique({
+        where: { id: merchantId }
+      });
+      if (!merchant) {
+        return res.status(404).json({ error: 'Merchant not found' });
+      }
+
+      // Gather live financial context
+      const balance = await getBalance(merchant.walletAddress);
+      const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
+      const rateData = await getCachedRate(currency);
+      const rate = rateData.rate;
+
+      // Calculate today's earnings
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayTransactions = await prisma.transaction.findMany({
+        where: {
+          merchantId,
+          direction: 'in',
+          createdAt: { gte: todayStart }
+        }
+      });
+      let todayEarningsLocal = 0;
+      for (const tx of todayTransactions) {
+        todayEarningsLocal += tx.amountLocal || 0;
+      }
+
+      // Calculate yesterday's earnings
+      const yesterdayStart = new Date();
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+      yesterdayStart.setHours(0, 0, 0, 0);
+      const yesterdayEnd = new Date(yesterdayStart);
+      yesterdayEnd.setHours(23, 59, 59, 999);
+      const yesterdayTransactions = await prisma.transaction.findMany({
+        where: {
+          merchantId,
+          direction: 'in',
+          createdAt: { gte: yesterdayStart, lte: yesterdayEnd }
+        }
+      });
+      let yesterdayEarningsLocal = 0;
+      for (const tx of yesterdayTransactions) {
+        yesterdayEarningsLocal += tx.amountLocal || 0;
+      }
+
+      // Construct customized system greeting prompt
+      const greetingPrompt = `Write a personalized, friendly, warm, and highly engaging greeting to start a chat with the merchant. 
+      Merchant Business Name: ${merchant.businessName}
+      Merchant Country: ${merchant.country}
+      Current Balance: ${balance.cusd} cUSD
+      Today's Earnings: ${todayEarningsLocal.toFixed(2)} ${currency}
+      Yesterday's Earnings: ${yesterdayEarningsLocal.toFixed(2)} ${currency}
+      Exchange Rate: 1 cUSD = ${rate.toFixed(2)} ${currency}
+
+      Guidelines:
+      - Use standard Pidgin English (if country is NG) or standard English/Swahili (if country is KE). 
+      - If yesterday's earnings was 0, say something motivational like: "Good morning ${merchant.businessName}! You made 0 ${currency} yesterday. Let's change that today! 💪" or similar Pidgin variant like "Body dey? You make 0 Naira yesterday. Make we change am today! Let's get that paper! 🚀".
+      - Keep it short (1-2 sentences), natural, warm, specific and memorable. Do not sound like a generic robot.
+      - Output ONLY the greeting text. Do not add any tags, headers, quotes, or JSON code formatting.`;
+
+      const response = await axios.post(
+        `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
+        {
+          contents: [{ role: 'user', parts: [{ text: greetingPrompt }] }]
+        }
+      );
+
+      let greeting = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || `Good morning ${merchant.businessName}! Let's make some sales today!`;
+      greeting = greeting.replace(/^["']|["']$/g, '');
+
+      // Save assistant reply
+      await prisma.conversation.create({
+        data: {
+          merchantId,
+          role: 'assistant',
+          content: greeting
+        }
+      });
+
+      return res.json({
+        success: true,
+        reply: greeting
+      });
+    }
+
     if (!message || message.trim() === '') {
       return res.status(400).json({ error: 'Message content is required' });
     }
@@ -188,6 +277,54 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
   } catch (error: any) {
     console.error('Error in agent message handler:', error);
     res.status(500).json({ error: error.message || 'AI completions failed' });
+  }
+});
+
+// POST /agent/speak - Synthesize voice reply via Google Cloud TTS REST API
+router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { text, languageCode } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
+    }
+
+    const lang = languageCode || 'en-US';
+    // Use high-quality neural voices
+    const voiceName = lang === 'sw-KE' ? 'sw-KE-Wavenet-A' : 'en-US-Neural2-F';
+
+    console.log(`[AGENT SPEAK] Google Cloud TTS synthesis for text: "${text.substring(0, 45)}..."`);
+
+    const ttsResponse = await axios.post(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${key}`,
+      {
+        input: { text },
+        voice: {
+          languageCode: lang,
+          name: voiceName
+        },
+        audioConfig: {
+          audioEncoding: 'MP3'
+        }
+      }
+    );
+
+    const audioContent = ttsResponse.data?.audioContent;
+    if (!audioContent) {
+      return res.status(500).json({ error: 'Google TTS synthesis returned empty audio' });
+    }
+
+    res.json({
+      success: true,
+      audioContent
+    });
+  } catch (error: any) {
+    console.error('Google Cloud TTS API Error:', error?.response?.data || error.message);
+    res.status(500).json({ error: error?.response?.data?.error?.message || error.message || 'Google Cloud TTS Synthesize failed' });
   }
 });
 
