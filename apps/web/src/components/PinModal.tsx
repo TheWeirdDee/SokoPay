@@ -5,7 +5,7 @@ import { Shield, X, Loader2, AlertTriangle } from 'lucide-react';
 interface PinModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (pin: string) => void;
   description?: string;
 }
 
@@ -71,7 +71,7 @@ export default function PinModal({ isOpen, onClose, onSuccess, description }: Pi
     try {
       const res = await api.post('/auth/verify-pin', { pin: pinValue });
       if (res.data.success) {
-        onSuccess();
+        onSuccess(pinValue);
         onClose();
       }
     } catch (err: any) {
