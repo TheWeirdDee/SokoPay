@@ -280,10 +280,149 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
   }
 });
 
+// Detect language from text content
+function detectLanguage(text: string): string {
+  const igboMarkers = /\b(ọ|ụ|ị|nna|nne|biko|daalu|kedu|eze|obi|chi|aku)\b/i;
+  const yorubaMarkers = /\b(ẹ|ọ|ṣ|gbọ|ẹjọ|pẹlẹ|ẹ káàárọ̀|odabo|bawo|jẹ|kí)\b/i;
+  const hausaMarkers = /\b(ina|yaya|sannu|nagode|Allah|kai|malam|ƙ|ɗ|'yan)\b/i;
+  const swahiliMarkers = /\b(habari|asante|karibu|pole|sawa|ndio|hapana|mama|baba|rafiki)\b/i;
+  const kikuyuMarkers = /\b(ũ|ĩ|nĩ|mũ|wĩ|tũ|gũ|kũ|thĩ|mwĩ)\b/i;
+  const luoMarkers = /\b(ber|adhi|erokamano|oyawore|idhi|bende|kod)\b/i;
+
+  if (igboMarkers.test(text)) return 'igbo';
+  if (yorubaMarkers.test(text)) return 'yoruba';
+  if (hausaMarkers.test(text)) return 'hausa';
+  if (swahiliMarkers.test(text)) return 'swahili';
+  if (kikuyuMarkers.test(text)) return 'kikuyu';
+  if (luoMarkers.test(text)) return 'luo';
+  return 'english';
+}
+
+function makeSpeakable(text: string, lang?: string): string {
+  let result = text;
+
+  // STEP 1 — Strip ALL diacritics universally
+  result = result
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // combining marks
+    .replace(/ọ/g, 'o').replace(/Ọ/g, 'O')
+    .replace(/ụ/g, 'u').replace(/Ụ/g, 'U')
+    .replace(/ị/g, 'i').replace(/Ị/g, 'I')
+    .replace(/ẹ/g, 'e').replace(/Ẹ/g, 'E')
+    .replace(/ṣ/g, 's').replace(/Ṣ/g, 'S')
+    .replace(/ƙ/g, 'k').replace(/Ƙ/g, 'K')
+    .replace(/ɗ/g, 'd').replace(/Ɗ/g, 'D')
+    .replace(/ũ/g, 'u').replace(/Ũ/g, 'U')
+    .replace(/ĩ/g, 'i').replace(/Ĩ/g, 'I')
+    .replace(/ã/g, 'a').replace(/Ã/g, 'A');
+
+  // STEP 2 — Language-specific word substitutions
+  // IGBO
+  result = result
+    .replace(/\bbiko\b/gi, 'beeko')
+    .replace(/\bdaalu\b/gi, 'daalu')
+    .replace(/\bkedu\b/gi, 'kedu')
+    .replace(/\bnna\b/gi, 'nna')
+    .replace(/\bnne\b/gi, 'nne')
+    .replace(/\bchi\b/gi, 'chi')
+    .replace(/\beze\b/gi, 'ezeh')
+    .replace(/\bogi\b/gi, 'ogi')
+    .replace(/\bndi\b/gi, 'ndi');
+
+  // YORUBA
+  result = result
+    .replace(/\bpele\b/gi, 'peleh')
+    .replace(/\bbawo\b/gi, 'bah-wo')
+    .replace(/\bodabo\b/gi, 'oh-dah-bo')
+    .replace(/\bekaaro\b/gi, 'eh-kah-ro')
+    .replace(/\bekaasan\b/gi, 'eh-kah-sahn')
+    .replace(/\bekaaale\b/gi, 'eh-kah-leh')
+    .replace(/\bese\b/gi, 'eh-seh')
+    .replace(/\beni\b/gi, 'eni')
+    .replace(/\bkabiyesi\b/gi, 'kah-bi-yeh-si');
+
+  // HAUSA
+  result = result
+    .replace(/\bsannu\b/gi, 'sannu')
+    .replace(/\bnagode\b/gi, 'nah-go-deh')
+    .replace(/\byadaya\b/gi, 'yah-dah-yah')
+    .replace(/\bkai\b/gi, 'kai')
+    .replace(/\bmalam\b/gi, 'mah-lam')
+    .replace(/\binna wuni\b/gi, 'inna wooni')
+    .replace(/\bsai anjima\b/gi, 'sai an-jima')
+    .replace(/\bina kwana\b/gi, 'ina kwana');
+
+  // SWAHILI (Kenya)
+  result = result
+    .replace(/\bhabari\b/gi, 'ha-ba-ri')
+    .replace(/\basante\b/gi, 'ah-san-teh')
+    .replace(/\bkaribu\b/gi, 'ka-ri-bu')
+    .replace(/\bpole\b/gi, 'po-leh')
+    .replace(/\bsawa\b/gi, 'sah-wah')
+    .replace(/\bndio\b/gi, 'n-dio')
+    .replace(/\bhapana\b/gi, 'ha-pa-na')
+    .replace(/\btwende\b/gi, 'twen-deh')
+    .replace(/\bnzuri\b/gi, 'n-zoo-ri')
+    .replace(/\bkwaheri\b/gi, 'kwa-heh-ri')
+    .replace(/\bshukrani\b/gi, 'shu-kra-ni')
+    .replace(/\brafiki\b/gi, 'ra-fi-ki')
+    .replace(/\bmambo\b/gi, 'mam-bo')
+    .replace(/\bvipi\b/gi, 'vi-pi')
+    .replace(/\bpoa\b/gi, 'po-ah')
+    .replace(/\bninahitaji\b/gi, 'ni-na-hi-ta-ji');
+
+  // KIKUYU (Kenya)
+  result = result
+    .replace(/\bwangu\b/gi, 'wan-gu')
+    .replace(/\bniwe\b/gi, 'ni-weh')
+    .replace(/\btigwo\b/gi, 'tig-wo')
+    .replace(/\btuika\b/gi, 'tu-i-ka');
+
+  // LUO (Kenya)
+  result = result
+    .replace(/\berokamano\b/gi, 'e-ro-ka-ma-no')
+    .replace(/\boyawore\b/gi, 'o-ya-wo-reh')
+    .replace(/\bnyasaye\b/gi, 'n-ya-sa-yeh');
+
+  // STEP 3 — Universal fixes for all languages
+  result = result
+    .replace(/₦/g, 'Naira ')
+    .replace(/KSh/g, 'Kenya shillings ')
+    .replace(/KES/g, 'Kenya shillings ')
+    .replace(/cUSD/g, 'see you ess dee')
+    .replace(/0x[a-fA-F0-9]{4,}/g, 'a blockchain address')
+    .replace(/\bTx\b/gi, 'transaction')
+    .replace(/\btx\b/g, 'transaction')
+    .replace(/\bQR\b/g, 'Q R code')
+    .replace(/\bOTP\b/g, 'O T P')
+    .replace(/\bPIN\b/g, 'pin')
+    .replace(/[*_#`~]/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+    .replace(/[\u{2600}-\u{27BF}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return result;
+}
+
+function getTTSVoice(
+  merchantCountry: string,
+  detectedLang: string
+): { languageCode: string; name: string } {
+  if (merchantCountry === 'KE') {
+    if (detectedLang === 'swahili') {
+      return { languageCode: 'sw-KE', name: 'sw-KE-Standard-A' };
+    }
+    return { languageCode: 'en-NG', name: 'en-NG-Wavenet-A' };
+  }
+  return { languageCode: 'en-NG', name: 'en-NG-Wavenet-A' };
+}
+
 // POST /agent/speak - Synthesize voice reply via Google Cloud TTS REST API
 router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { text, languageCode } = req.body;
+    const { text } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'Text is required' });
     }
@@ -293,22 +432,34 @@ router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
       return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
     }
 
-    const lang = languageCode || 'en-US';
-    // Use high-quality neural voices
-    const voiceName = lang === 'sw-KE' ? 'sw-KE-Wavenet-A' : 'en-US-Neural2-F';
+    const merchantId = req.merchantId;
+    let country = 'NG';
+    if (merchantId) {
+      const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+      if (merchant) {
+        country = merchant.country;
+      }
+    }
 
-    console.log(`[AGENT SPEAK] Google Cloud TTS synthesis for text: "${text.substring(0, 45)}..."`);
+    const detectedLang = detectLanguage(text);
+    const voice = getTTSVoice(country, detectedLang);
+    const speakableText = makeSpeakable(text, detectedLang);
+
+    console.log(`[AGENT SPEAK] Google Cloud TTS Rest Synthesis: lang=${detectedLang}, voice=${voice.name}, text="${speakableText.substring(0, 45)}..."`);
 
     const ttsResponse = await axios.post(
       `https://texttospeech.googleapis.com/v1/text:synthesize?key=${key}`,
       {
-        input: { text },
+        input: { text: speakableText },
         voice: {
-          languageCode: lang,
-          name: voiceName
+          languageCode: voice.languageCode,
+          name: voice.name
         },
         audioConfig: {
-          audioEncoding: 'MP3'
+          audioEncoding: 'MP3',
+          speakingRate: 0.92,
+          pitch: 0.8,
+          effectsProfileId: ['small-bluetooth-speaker-class-device']
         }
       }
     );
@@ -320,7 +471,9 @@ router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      audioContent
+      audioContent,
+      audio: audioContent,
+      detectedLang
     });
   } catch (error: any) {
     console.error('Google Cloud TTS API Error:', error?.response?.data || error.message);
