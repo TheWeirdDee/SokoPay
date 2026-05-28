@@ -34,16 +34,7 @@ interface MerchantProfile {
   paymentAlertsEnabled: boolean;
 }
 
-interface WithdrawalAccount {
-  id: string;
-  merchantId: string;
-  type: string;
-  accountNumber: string | null;
-  bankName: string | null;
-  bankCode: string | null;
-  mpesaNumber: string | null;
-  isDefault: boolean;
-}
+
 
 // Toggle Switch Component
 function Toggle({ enabled, onChange, label, description, disabled = false }: {
@@ -118,9 +109,10 @@ export default function Settings() {
       setIsLoading(false);
     } else {
       // absolute fallback: fetch it if context didn't load it yet (shouldn't happen)
-      fetchProfile().then((res) => {
+      fetchProfile().then(() => {
         setIsLoading(false);
-      }).catch(() => {
+      }).catch((err) => {
+        setError(err?.response?.data?.error || 'Failed to load profile.');
         setIsLoading(false);
       });
     }
