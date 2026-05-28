@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useCache } from '../context/CacheContext';
 import { 
   AlertTriangle, 
   FlaskConical, 
@@ -78,6 +79,8 @@ function Toggle({ enabled, onChange, label, description, disabled = false }: {
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { profile: contextProfile, fetchProfile, withdrawalAccounts: accounts, fetchAccounts, loadingAccounts } = useCache();
+  
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -89,9 +92,6 @@ export default function Settings() {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
 
-  // Withdrawal Accounts State
-  const [accounts, setAccounts] = useState<WithdrawalAccount[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   
   // Add Account Form State
@@ -109,46 +109,24 @@ export default function Settings() {
   const [copied, setCopied] = useState(false);
   const [isTogglingCountry, setIsTogglingCountry] = useState(false);
 
-  async function fetchProfile() {
-    try {
-      const response = await api.get('/merchant/me');
-      if (response.data.success) {
-        const m = response.data.merchant;
-        setProfile(m);
-        setBusinessName(m.businessName);
-        setLowBalanceThreshold(m.lowBalanceThreshold.toString());
-        
-        // Auto-select type based on country
-        if (m.country === 'KE') {
-          setAccType('mpesa');
-        } else {
-          setAccType('bank');
-        }
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Failed to load profile.');
-    } finally {
+  useEffect(() => {
+    if (contextProfile) {
+      setProfile(contextProfile);
+      setBusinessName(contextProfile.businessName);
+      setLowBalanceThreshold(contextProfile.lowBalanceThreshold.toString());
+      setAccType(contextProfile.country === 'KE' ? 'mpesa' : 'bank');
       setIsLoading(false);
+    } else {
+      // absolute fallback: fetch it if context didn't load it yet (shouldn't happen)
+      fetchProfile().then((res) => {
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
     }
-  }
-
-  async function fetchAccounts() {
-    setLoadingAccounts(true);
-    try {
-      const response = await api.get('/withdraw/accounts');
-      if (response.data.success) {
-        setAccounts(response.data.accounts || []);
-      }
-    } catch (err: any) {
-      console.error('Error fetching accounts:', err);
-    } finally {
-      setLoadingAccounts(false);
-    }
-  }
+  }, [contextProfile]);
 
   useEffect(() => {
-    fetchProfile();
     fetchAccounts();
   }, []);
 
@@ -178,7 +156,7 @@ export default function Settings() {
         lowBalanceThreshold: thresholdNum
       });
       if (response.data.success) {
-        setProfile(response.data.merchant);
+        fetchProfile(true);
         setProfileSuccess('Profile settings updated successfully!');
       }
     } catch (err: any) {
@@ -205,7 +183,7 @@ export default function Settings() {
         [key]: newValue
       });
       if (response.data.success) {
-        setProfile(response.data.merchant);
+        fetchProfile(true);
       }
     } catch (err: any) {
       console.error(err);
@@ -267,7 +245,7 @@ export default function Settings() {
         setBankCode('');
         setIsDefaultAcc(false);
         setShowAddForm(false);
-        fetchAccounts();
+        fetchAccounts(true);
       }
     } catch (err: any) {
       console.error(err);
@@ -282,7 +260,7 @@ export default function Settings() {
     try {
       const response = await api.patch(`/withdraw/accounts/${id}/default`);
       if (response.data.success) {
-        fetchAccounts();
+        fetchAccounts(true);
       }
     } catch (err: any) {
       console.error(err);
@@ -296,7 +274,7 @@ export default function Settings() {
     try {
       const response = await api.delete(`/withdraw/accounts/${id}`);
       if (response.data.success) {
-        fetchAccounts();
+        fetchAccounts(true);
       }
     } catch (err: any) {
       console.error(err);
