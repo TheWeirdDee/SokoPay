@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { ArrowLeft, Send, Calendar, Clock, Trash2, AlertTriangle, CheckCircle, Search, Building, Check } from 'lucide-react';
+import { ArrowLeft, Send, Calendar, Clock, Trash2, AlertTriangle, CheckCircle, Search, Building } from 'lucide-react';
 import { useCache } from '../context/CacheContext';
 import PinModal from '../components/PinModal';
 
