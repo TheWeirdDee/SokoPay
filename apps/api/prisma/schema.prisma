@@ -19,6 +19,7 @@ model Merchant {
   selfAgentId           String?
   passwordHash          String?
   paymentPasswordHash   String?
+  paymentPinHash        String?
   lowBalanceThreshold   Float     @default(5)
   creditNotificationSent Boolean  @default(false)
   dailySummaryEnabled   Boolean   @default(true)
