@@ -265,4 +265,5 @@ router.post('/verify-pin', requireAuth, async (req: AuthRequest, res: Response) 
   }
 });
 
-export { router as authRouter };
+export { router as authRouter }; // exported authRouter
+
