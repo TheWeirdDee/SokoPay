@@ -4,9 +4,14 @@ import { sendOTP, verifyOTP } from '../services/otp';
 import { generateMerchantWallet } from '../services/wallet';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+
+// Global map to track PIN lockout states: merchantId -> { attempts, lockedUntil }
+const pinLockouts = new Map<string, { attempts: number; lockedUntil: number }>();
 
 function generateRandomOTP() {
   return '123456';
@@ -65,8 +70,15 @@ router.post('/login-password', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No password configured for this account. Please log in with OTP.' });
     }
 
-    const hashed = hashString(password);
-    if (merchant.passwordHash !== hashed) {
+    // Support both bcrypt and legacy sha256
+    let passwordMatch = false;
+    if (merchant.passwordHash.startsWith('$2')) {
+      passwordMatch = await bcrypt.compare(password, merchant.passwordHash);
+    } else {
+      passwordMatch = merchant.passwordHash === hashString(password);
+    }
+
+    if (!passwordMatch) {
       return res.status(400).json({ error: 'Incorrect password' });
     }
 
@@ -90,7 +102,7 @@ router.post('/login-password', async (req: Request, res: Response) => {
 
 router.post('/verify-otp', async (req: Request, res: Response) => {
   try {
-    const { phone, otp, businessName, country, password, paymentPassword } = req.body;
+    const { phone, otp, businessName, country, password, paymentPassword, paymentPin } = req.body;
     
     if (!phone || !otp) {
       return res.status(400).json({ error: 'Phone and OTP are required' });
@@ -105,7 +117,31 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
     // OTP is valid. Check if merchant exists.
     let merchant = await prisma.merchant.findUnique({ where: { phone } });
 
-    if (!merchant) {
+    if (merchant) {
+      // Existing user logging in via OTP flow
+      // If a password was not supplied yet, they must complete the password challenge
+      if (merchant.passwordHash && !password) {
+        return res.json({
+          success: true,
+          exists: true,
+          requiresPassword: true
+        });
+      }
+
+      // If password was supplied, verify it
+      if (merchant.passwordHash && password) {
+        let passwordMatch = false;
+        if (merchant.passwordHash.startsWith('$2')) {
+          passwordMatch = await bcrypt.compare(password, merchant.passwordHash);
+        } else {
+          passwordMatch = merchant.passwordHash === hashString(password);
+        }
+
+        if (!passwordMatch) {
+          return res.status(400).json({ error: 'Incorrect password' });
+        }
+      }
+    } else {
       // First time signup
       if (!businessName || !country) {
         return res.status(400).json({ error: 'businessName and country required for signup' });
@@ -114,8 +150,10 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       // Generate EOA Wallet offline
       const { address, encryptedPrivateKey } = generateMerchantWallet();
 
-      const passwordHash = password ? hashString(password) : null;
-      const paymentPasswordHash = paymentPassword ? hashString(paymentPassword) : null;
+      const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+      const finalPin = paymentPin || paymentPassword;
+      const paymentPinHash = finalPin ? await bcrypt.hash(finalPin, 10) : null;
+      const legacyPaymentHash = finalPin ? hashString(finalPin) : null;
 
       merchant = await prisma.merchant.create({
         data: {
@@ -125,7 +163,8 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
           walletAddress: address,
           encryptedPrivateKey,
           passwordHash,
-          paymentPasswordHash
+          paymentPinHash,
+          paymentPasswordHash: legacyPaymentHash
         }
       });
     }
@@ -150,6 +189,79 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to verify OTP' });
+  }
+});
+
+// POST /auth/verify-pin - Verify payment PIN with lockout protection
+router.post('/verify-pin', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    const { pin } = req.body;
+
+    if (!merchantId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (!pin) {
+      return res.status(400).json({ error: 'Payment PIN is required' });
+    }
+
+    // Check lockout state
+    const lockout = pinLockouts.get(merchantId);
+    if (lockout && lockout.lockedUntil > Date.now()) {
+      const minutesLeft = Math.ceil((lockout.lockedUntil - Date.now()) / (60 * 1000));
+      return res.status(403).json({ 
+        error: `Account temporarily locked due to consecutive failed attempts. Try again in ${minutesLeft} minutes.` 
+      });
+    }
+
+    const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+    if (!merchant) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    // Verify PIN: check paymentPinHash first (bcrypt), then paymentPasswordHash (sha256)
+    let pinMatch = false;
+    if (merchant.paymentPinHash && merchant.paymentPinHash.startsWith('$2')) {
+      pinMatch = await bcrypt.compare(pin, merchant.paymentPinHash);
+    } else if (merchant.paymentPasswordHash) {
+      pinMatch = merchant.paymentPasswordHash === hashString(pin);
+    } else {
+      // No pin set
+      return res.status(400).json({ error: 'Payment PIN not configured' });
+    }
+
+    if (!pinMatch) {
+      const currentAttempts = (lockout?.attempts || 0) + 1;
+      if (currentAttempts >= 3) {
+        pinLockouts.set(merchantId, {
+          attempts: currentAttempts,
+          lockedUntil: Date.now() + 5 * 60 * 1000 // 5 minutes
+        });
+        return res.status(403).json({ 
+          error: 'Incorrect PIN. Your account is locked for 5 minutes.' 
+        });
+      } else {
+        pinLockouts.set(merchantId, {
+          attempts: currentAttempts,
+          lockedUntil: 0
+        });
+        return res.status(400).json({ 
+          error: `Incorrect PIN. ${3 - currentAttempts} attempts remaining.` 
+        });
+      }
+    }
+
+    // Reset attempts on successful entry
+    pinLockouts.delete(merchantId);
+
+    res.json({
+      success: true,
+      message: 'PIN verified successfully'
+    });
+
+  } catch (error: any) {
+    console.error('Error verifying PIN:', error);
+    res.status(500).json({ error: error.message || 'Failed to verify PIN' });
   }
 });
 
