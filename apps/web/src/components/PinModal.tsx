@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
-import { Shield, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Shield, X, AlertTriangle } from 'lucide-react';
 
 interface PinModalProps {
   isOpen: boolean;
