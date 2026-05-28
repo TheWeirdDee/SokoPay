@@ -4,6 +4,8 @@ import { api } from '../lib/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ArrowLeft, Landmark, Smartphone, Plus, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { useCache } from '../context/CacheContext';
+import PinModal from '../components/PinModal';
 
 interface WithdrawalAccount {
   id: string;
@@ -13,11 +15,6 @@ interface WithdrawalAccount {
   bankCode: string | null;
   mpesaNumber: string | null;
   isDefault: boolean;
-}
-
-interface Merchant {
-  id: string;
-  country: string;
 }
 
 interface PreviewData {
@@ -31,13 +28,7 @@ interface PreviewData {
 
 export default function Withdraw() {
   const navigate = useNavigate();
-  const [merchant, setMerchant] = useState<Merchant | null>(null);
-  const [balance, setBalance] = useState({ cusd: '0.00', currency: 'NGN', local: '0.00' });
-  const [loadingMerchant, setLoadingMerchant] = useState(true);
-
-  // Accounts List State
-  const [accounts, setAccounts] = useState<WithdrawalAccount[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
+  const { profile: merchant, balance, withdrawalAccounts: accounts, fetchAccounts, updateBalance } = useCache();
 
   // Link Account Form State
   const [showAddForm, setShowAddForm] = useState(false);
@@ -54,7 +45,7 @@ export default function Withdraw() {
   // Withdraw execution form state
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [paymentPassword, setPaymentPassword] = useState('');
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [execLoading, setExecLoading] = useState(false);
   const [execError, setExecError] = useState('');
   const [execSuccess, setExecSuccess] = useState('');
@@ -65,47 +56,29 @@ export default function Withdraw() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  const fetchMerchantAndBalance = async () => {
-    try {
-      const response = await api.get('/merchant/me');
-      setMerchant(response.data.merchant);
-      setBalance(response.data.balance);
-      
-      // Default form account type based on country
-      if (response.data.merchant.country === 'KE') {
+  useEffect(() => {
+    fetchAccounts();
+    updateBalance();
+  }, []);
+
+  // Auto select default account or first account when accounts list loads
+  useEffect(() => {
+    if (accounts && accounts.length > 0 && !selectedAccountId) {
+      const defaultAcc = accounts.find((a: WithdrawalAccount) => a.isDefault);
+      setSelectedAccountId(defaultAcc ? defaultAcc.id : accounts[0].id);
+    }
+  }, [accounts, selectedAccountId]);
+
+  // Set default form account type based on merchant country
+  useEffect(() => {
+    if (merchant) {
+      if (merchant.country === 'KE') {
         setAccType('mpesa');
       } else {
         setAccType('bank');
       }
-    } catch (err: any) {
-      console.error('Error fetching merchant details:', err);
-    } finally {
-      setLoadingMerchant(false);
     }
-  };
-
-  const fetchAccounts = async () => {
-    try {
-      const response = await api.get('/withdraw/accounts');
-      const accountsList = response.data.accounts || [];
-      setAccounts(accountsList);
-      
-      // Auto select default account or first account
-      if (accountsList.length > 0) {
-        const defaultAcc = accountsList.find((a: WithdrawalAccount) => a.isDefault);
-        setSelectedAccountId(defaultAcc ? defaultAcc.id : accountsList[0].id);
-      }
-    } catch (err: any) {
-      console.error('Error fetching withdrawal accounts:', err);
-    } finally {
-      setLoadingAccounts(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchMerchantAndBalance();
-    fetchAccounts();
-  }, []);
+  }, [merchant]);
 
   // Fetch FX preview when amount changes
   useEffect(() => {
@@ -170,7 +143,7 @@ export default function Withdraw() {
       setShowAddForm(false);
       
       // Refresh list
-      await fetchAccounts();
+      await fetchAccounts(true);
       
       // Auto select the new account
       if (response.data.account) {
@@ -184,7 +157,7 @@ export default function Withdraw() {
     }
   };
 
-  const handleExecuteWithdrawal = async (e: React.FormEvent) => {
+  const handleExecuteWithdrawalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setExecError('');
     setExecSuccess('');
@@ -202,22 +175,22 @@ export default function Withdraw() {
       return;
     }
 
-    if (amount > parseFloat(balance.cusd)) {
+    if (!balance || amount > parseFloat(balance.cusd)) {
       setExecError('Insufficient balance to complete withdrawal.');
       return;
     }
 
-    if (!paymentPassword) {
-      setExecError('Please enter your 4-digit payment PIN.');
-      return;
-    }
+    setIsPinModalOpen(true);
+  };
 
+  const executeWithdrawal = async (verifiedPin: string) => {
+    const amount = parseFloat(withdrawAmount);
     setExecLoading(true);
     try {
       const response = await api.post('/withdraw/execute', {
         amountCusd: amount,
         withdrawalAccountId: selectedAccountId,
-        paymentPassword
+        paymentPassword: verifiedPin
       });
 
       setExecSuccess(`Withdrawal executed successfully! Payout processing.`);
@@ -225,11 +198,10 @@ export default function Withdraw() {
       if (response.data.offramp?.trackingId) setExecTrackingId(response.data.offramp.trackingId);
       
       setWithdrawAmount('');
-      setPaymentPassword('');
       setPreview(null);
       
       // Reload balance
-      fetchMerchantAndBalance();
+      updateBalance();
     } catch (err: any) {
       console.error('Execute withdrawal error:', err);
       setExecError(err.response?.data?.error || 'Withdrawal execution failed.');
@@ -238,7 +210,7 @@ export default function Withdraw() {
     }
   };
 
-  const selectedAccountDetails = accounts.find(a => a.id === selectedAccountId);
+  const selectedAccountDetails = accounts.find((a: WithdrawalAccount) => a.id === selectedAccountId);
 
   return (
     <div className="min-h-screen bg-bg p-4 pb-24 font-body text-text">
@@ -257,7 +229,7 @@ export default function Withdraw() {
       <div className="bg-bg-dark text-text-light p-5 rounded-xl border-2 border-border shadow-card mb-6 flex justify-between items-center">
         <div>
           <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider">Available Balance</span>
-          {loadingMerchant ? (
+          {!balance ? (
             <div className="h-8 w-24 bg-border/20 animate-pulse mt-1 rounded"></div>
           ) : (
             <div className="font-display text-3xl font-black mt-0.5">{Number(balance.cusd).toFixed(2)} <span className="text-lg">cUSD</span></div>
@@ -265,7 +237,7 @@ export default function Withdraw() {
         </div>
         <div className="text-right">
           <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider">Local Value</span>
-          {loadingMerchant ? (
+          {!balance ? (
             <div className="h-6 w-20 bg-border/20 animate-pulse mt-1 rounded ml-auto"></div>
           ) : (
             <div className="font-mono text-sm mt-0.5 text-accent font-bold">
@@ -314,7 +286,7 @@ export default function Withdraw() {
             </Button>
           </div>
         ) : (
-          <form onSubmit={handleExecuteWithdrawal} className="space-y-4">
+          <form onSubmit={handleExecuteWithdrawalSubmit} className="space-y-4">
             {/* Account Selector */}
             <div>
               <label className="block mb-1 text-sm font-semibold text-text-muted">Receive account</label>
@@ -374,18 +346,6 @@ export default function Withdraw() {
                 </div>
               </div>
             ) : null}
-
-            <Input
-              label="4-Digit Payment PIN"
-              type="password"
-              pattern="[0-9]*"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="••••"
-              value={paymentPassword}
-              onChange={(e) => setPaymentPassword(e.target.value.replace(/\D/g, ''))}
-              required
-            />
 
             <Button type="submit" isLoading={execLoading} className="w-full">
               Withdraw to {selectedAccountDetails?.type === 'mpesa' ? 'M-Pesa' : 'Bank'}
@@ -554,6 +514,13 @@ export default function Withdraw() {
           </div>
         )}
       </div>
+
+      <PinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onSuccess={executeWithdrawal}
+        description={`Confirm withdrawal of ${withdrawAmount} cUSD to your linked account`}
+      />
     </div>
   );
 }
