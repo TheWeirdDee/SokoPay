@@ -1,23 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCache } from '../context/CacheContext';
-import { api } from '../lib/api';
 import { 
-  TrendingUp, 
   ArrowLeft, 
   Sparkles, 
   Lock, 
   PieChart, 
   Flame, 
-  ChevronRight, 
-  LineChart as LineChartIcon,
-  HelpCircle
+  LineChart as LineChartIcon
 } from 'lucide-react';
 
 export default function Analytics() {
   const navigate = useNavigate();
   const { transactions, fetchTransactions, profile } = useCache();
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchTransactions();
