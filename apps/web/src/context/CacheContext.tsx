@@ -39,6 +39,8 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
   const hasFetchedProfile = useRef(false);
   const balanceIntervalRef = useRef<any>(null);
+  const lastFetchAccountsTime = useRef<number>(0);
+  const lastFetchTransactionsTime = useRef<number>(0);
 
   const clearCache = () => {
     setProfile(null);
@@ -121,14 +123,11 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
   const fetchAccounts = async (force = false) => {
     const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
     if (!token) return [];
-    if (withdrawalAccounts.length > 0 && !force) {
-      // Background update silently
-      api.get('/withdraw/accounts').then(res => {
-        if (res.data.success) {
-          setWithdrawalAccounts(res.data.accounts || []);
-        }
-      }).catch(err => console.error('Silent bg accounts fetch failed:', err));
-      
+
+    const now = Date.now();
+    const isCacheValid = withdrawalAccounts.length > 0 && (now - lastFetchAccountsTime.current < 5 * 60 * 1000);
+
+    if (isCacheValid && !force) {
       return withdrawalAccounts;
     }
 
@@ -140,8 +139,10 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await api.get('/withdraw/accounts');
       if (res.data.success) {
-        setWithdrawalAccounts(res.data.accounts || []);
-        return res.data.accounts;
+        const list = res.data.accounts || [];
+        setWithdrawalAccounts(list);
+        lastFetchAccountsTime.current = Date.now();
+        return list;
       }
     } catch (err) {
       console.error('Failed to fetch accounts in cache:', err);
@@ -155,14 +156,11 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
   const fetchTransactions = async (force = false) => {
     const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
     if (!token) return [];
-    if (transactions.length > 0 && !force) {
-      // Background update silently
-      api.get('/transactions').then(res => {
-        if (res.data.success) {
-          setTransactions((res.data.transactions || []).slice(0, 20));
-        }
-      }).catch(err => console.error('Silent bg transactions fetch failed:', err));
 
+    const now = Date.now();
+    const isCacheValid = transactions.length > 0 && (now - lastFetchTransactionsTime.current < 30 * 1000);
+
+    if (isCacheValid && !force) {
       return transactions;
     }
 
@@ -176,6 +174,7 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
       if (res.data.success) {
         const list = (res.data.transactions || []).slice(0, 20);
         setTransactions(list);
+        lastFetchTransactionsTime.current = Date.now();
         return list;
       }
     } catch (err) {
