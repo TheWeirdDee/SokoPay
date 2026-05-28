@@ -83,7 +83,50 @@ export default function Chat() {
   const [pendingApproval, setPendingApproval] = useState<any | null>(null);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
 
-  const speakMessage = async (content: string) => {
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [mutedMessageIds, setMutedMessageIds] = useState<string[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      // Clear speak states when unmounting / leaving page
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+      }
+      setPlayingMessageId(null);
+      setMutedMessageIds([]);
+    };
+  }, []);
+
+  const handleSpeakerClick = (id: string, text: string) => {
+    const isIdle = playingMessageId !== id && !mutedMessageIds.includes(id);
+    const isPlaying = playingMessageId === id;
+    const isMutedState = mutedMessageIds.includes(id);
+
+    if (isIdle) {
+      setPlayingMessageId(id);
+      speakMessage(text, id);
+    } else if (isPlaying) {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.currentTime = 0;
+      }
+      setMutedMessageIds(prev => [...prev, id]);
+      setPlayingMessageId(null);
+    } else if (isMutedState) {
+      setMutedMessageIds(prev => prev.filter(mId => mId !== id));
+      setPlayingMessageId(id);
+      speakMessage(text, id);
+    }
+  };
+
+  const speakMessage = async (content: string, messageId?: string) => {
     if (isMuted) return;
 
     try {
@@ -100,6 +143,19 @@ export default function Chat() {
         if (res.data.success && res.data.audioContent) {
           const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
           const audio = new Audio(audioUrl);
+          currentAudioRef.current = audio;
+          
+          audio.onended = () => {
+            if (messageId) {
+              setPlayingMessageId(prev => prev === messageId ? null : prev);
+            }
+          };
+          audio.onerror = () => {
+            if (messageId) {
+              setPlayingMessageId(prev => prev === messageId ? null : prev);
+            }
+          };
+
           await audio.play();
           success = true;
         }
@@ -114,6 +170,17 @@ export default function Chat() {
           const utterance = new SpeechSynthesisUtterance(textToSpeak);
           utterance.lang = languageCode;
           
+          utterance.onend = () => {
+            if (messageId) {
+              setPlayingMessageId(prev => prev === messageId ? null : prev);
+            }
+          };
+          utterance.onerror = () => {
+            if (messageId) {
+              setPlayingMessageId(prev => prev === messageId ? null : prev);
+            }
+          };
+
           // Try to select a regional voice if possible
           const voices = window.speechSynthesis.getVoices();
           if (voices && voices.length > 0) {
@@ -127,10 +194,16 @@ export default function Chat() {
           window.speechSynthesis.speak(utterance);
         } else {
           console.warn('Web Speech API (speechSynthesis) is not supported in this browser.');
+          if (messageId) {
+            setPlayingMessageId(null);
+          }
         }
       }
     } catch (e) {
       console.warn('Speech synthesis failed entirely:', e);
+      if (messageId) {
+        setPlayingMessageId(null);
+      }
     }
   };
   
@@ -246,7 +319,8 @@ export default function Chat() {
     
     const lastMsg = messages[messages.length - 1];
     if (lastMsg && lastMsg.role === 'assistant') {
-      speakMessage(lastMsg.content);
+      setPlayingMessageId(lastMsg.id);
+      speakMessage(lastMsg.content, lastMsg.id);
     }
   }, [messages, isTyping]);
 
@@ -849,15 +923,44 @@ export default function Chat() {
                     )}
                     <div className="flex justify-between items-start gap-3">
                       <p className="flex-1">{parsed.text}</p>
-                      {!isUser && (
-                        <button
-                          onClick={() => speakMessage(parsed.text)}
-                          className="shrink-0 p-1.5 rounded-full bg-white/60 hover:bg-white text-[#1A1208] transition-colors border border-[#1A1208]/15"
-                          title="Replay Voice"
-                        >
-                          <Volume2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      {!isUser && (() => {
+                        const isIdle = playingMessageId !== msg.id && !mutedMessageIds.includes(msg.id);
+                        const isPlaying = playingMessageId === msg.id;
+                        const isMutedState = mutedMessageIds.includes(msg.id);
+                        
+                        let buttonClass = "speaker-btn shrink-0 p-1.5 rounded-full transition-all border border-[#1A1208]/15 ";
+                        let icon = <Volume2 className="w-3.5 h-3.5" />;
+                        let tooltip = "Tap to hear";
+
+                        if (isPlaying) {
+                          buttonClass += "playing bg-[#FCEAE2] text-[#C4622D]";
+                          icon = <Volume2 className="w-3.5 h-3.5 text-[#C4622D] animate-pulse" />;
+                          tooltip = "Tap to stop";
+                        } else if (isMutedState) {
+                          buttonClass += "muted bg-[#FAF7F2] text-[#7A6B55]";
+                          icon = <VolumeX className="w-3.5 h-3.5 text-[#7A6B55]" />;
+                          tooltip = "Tap to hear again";
+                        } else {
+                          buttonClass += "bg-white/60 hover:bg-white text-[#1A1208]";
+                        }
+
+                        return (
+                          <div className="flex flex-col items-center shrink-0">
+                            <button
+                              onClick={() => handleSpeakerClick(msg.id, parsed.text)}
+                              className={buttonClass}
+                              title={tooltip}
+                            >
+                              {icon}
+                            </button>
+                            {isPlaying && (
+                              <span className="text-[9px] font-mono text-[#C4622D] font-bold mt-1 tracking-wider uppercase animate-pulse">
+                                speaking
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     
                     {/* Render Interactive Action Cards */}
