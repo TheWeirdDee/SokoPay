@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
-import { Banknote, Bot, ArrowDownLeft, ArrowUpRight, ExternalLink, Trophy } from 'lucide-react';
+import { Banknote, Bot, ArrowDownLeft, ArrowUpRight, ExternalLink, Trophy, Database } from 'lucide-react';
+import { useCache } from '../context/CacheContext';
 
 interface Transaction {
   id: string;
@@ -25,6 +26,7 @@ interface Merchant {
   country: string;
   walletAddress: string;
   isVerified: boolean;
+  createdAt?: string;
 }
 
 interface Balance {
@@ -46,6 +48,17 @@ interface DashboardData {
 }
 
 export default function Dashboard() {
+  const { 
+    profile, 
+    balance, 
+    recentTransactions, 
+    todayEarnings, 
+    rate, 
+    loadingProfile, 
+    fetchProfile, 
+    updateBalance 
+  } = useCache();
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -64,8 +77,7 @@ export default function Dashboard() {
 
   const fetchDashboardSilent = async () => {
     try {
-      const response = await api.get('/merchant/me');
-      setData(response.data);
+      await updateBalance();
       setSecondsSinceUpdate(0);
     } catch (err) {
       console.error('Silent dashboard update failed:', err);
@@ -108,24 +120,25 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    async function fetchDashboard() {
-      try {
-        const response = await api.get('/merchant/me');
-        setData(response.data);
-        setSecondsSinceUpdate(0);
-      } catch (err: any) {
+    if (profile) {
+      setData({
+        merchant: profile,
+        balance: balance || { cusd: '0.00', celo: '0.00', local: '0.00', currency: profile.country === 'KE' ? 'KES' : 'NGN' },
+        todayEarnings: todayEarnings || { local: '0.00', cusd: '0.00' },
+        recentTransactions: recentTransactions || [],
+        rate: rate || (profile.country === 'KE' ? 150 : 1500)
+      });
+      setIsLoading(false);
+    } else if (!loadingProfile) {
+      fetchProfile().catch((err: any) => {
         console.error(err);
         setError(err.response?.data?.error || 'Failed to load dashboard data.');
         if (err.response?.status === 401) {
           navigate('/onboarding');
         }
-      } finally {
-        setIsLoading(false);
-      }
+      });
     }
-
-    fetchDashboard();
-  }, [navigate]);
+  }, [profile, balance, recentTransactions, todayEarnings, rate, loadingProfile, navigate]);
 
   // Rate timer check
   useEffect(() => {
@@ -253,6 +266,16 @@ export default function Dashboard() {
 
   const { merchant, balance, todayEarnings, recentTransactions } = data;
   const currencySymbol = balance.currency === 'KES' ? 'KSh' : '₦';
+
+  const getCreditScoreProgress = () => {
+    if (!merchant?.createdAt) return { percent: 45, daysLeft: 45 };
+    const diffTime = Math.abs(Date.now() - new Date(merchant.createdAt).getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const daysLeft = Math.max(0, 90 - diffDays);
+    const percent = Math.min(100, Math.max(1, Math.floor((diffDays / 90) * 100)));
+    return { percent, daysLeft };
+  };
+  const { percent, daysLeft } = getCreditScoreProgress();
 
   const formatCurrency = (val: string | number) => {
     const num = Number(val);
@@ -404,6 +427,31 @@ export default function Dashboard() {
                 </div>
               </div>
             </section>
+
+            {/* Credit Score Progress Card */}
+            <div className="w-full bg-[#F2EDE4] border-2 border-[#1A1208] p-5 rounded-xl shadow-card">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-black text-[#1A1208] uppercase tracking-wider flex items-center gap-1.5">
+                  <Database className="w-4 h-4 text-[#C4622D]" /> Credit Score — Under Development
+                </span>
+                <span className="text-[9px] font-black text-[#C4622D] bg-[#FCEAE2] border border-[#C4622D]/30 px-2 py-0.5 rounded-full">
+                  Muon Oracle Syncing
+                </span>
+              </div>
+              <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+                Your 90-day transaction history will unlock access to business loans.
+              </p>
+              <div className="mt-3 space-y-1.5">
+                <div className="w-full bg-[#DDD5C5] h-3 rounded-full overflow-hidden border border-[#1A1208]/20">
+                  <div className="bg-[#5C6B3A] h-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                </div>
+                <div className="flex justify-between text-[10px] font-bold text-[#7A6B55]">
+                  <span>{daysLeft} days to go</span>
+                  <span>{percent}% completed</span>
+                </div>
+              </div>
+              <span className="text-[9px] text-[#7A6B55]/70 block mt-2 font-mono font-bold">Powered by Muon Network</span>
+            </div>
 
             {/* Quick Actions */}
             <section className="space-y-3">
