@@ -8,6 +8,7 @@ import Transactions from './pages/Transactions';
 import Pay from './pages/Pay';
 import Withdraw from './pages/Withdraw';
 import QR from './pages/QR';
+import Analytics from './pages/Analytics';
 import Layout from './components/Layout';
 import PublicPayment from './pages/PublicPayment';
 import { CacheProvider } from './context/CacheContext';
@@ -30,6 +31,7 @@ function App() {
             <Route path="/pay" element={<Pay />} />
             <Route path="/withdraw" element={<Withdraw />} />
             <Route path="/qr" element={<QR />} />
+            <Route path="/analytics" element={<Analytics />} />
           </Route>
         </Routes>
       </Router>
