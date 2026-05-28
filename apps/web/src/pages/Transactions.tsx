@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { Banknote, Landmark, Smartphone, ArrowDownLeft, ArrowUpRight, Search, BarChart2, ChevronDown, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Banknote, Landmark, Smartphone, ArrowDownLeft, ArrowUpRight, Search, BarChart2, ChevronDown, ArrowLeft, ExternalLink, FileText } from 'lucide-react';
+import { useCache } from '../context/CacheContext';
 
 interface Transaction {
   id: string;
@@ -29,7 +30,8 @@ interface Stats {
 
 export default function Transactions() {
   const navigate = useNavigate();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { transactions: cachedTransactions } = useCache();
+  const [transactions, setTransactions] = useState<Transaction[]>(cachedTransactions || []);
   const [stats, setStats] = useState<Stats>({ totalInflow: 0, totalOutflow: 0, totalCash: 0 });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -44,9 +46,14 @@ export default function Transactions() {
   // Load cached transactions on initial mount for offline-first fallback
   useEffect(() => {
     try {
+      if (cachedTransactions && cachedTransactions.length > 0) {
+        setTransactions(cachedTransactions);
+        setIsLoading(false);
+      }
+      
       const cached = localStorage.getItem('sokopay_cached_txs');
       const cachedStats = localStorage.getItem('sokopay_cached_stats');
-      if (cached) {
+      if (cached && (!cachedTransactions || cachedTransactions.length === 0)) {
         setTransactions(JSON.parse(cached));
         setIsLoading(false); // Skip skeleton loading if cache is available
       }
@@ -56,14 +63,13 @@ export default function Transactions() {
     } catch (e) {
       console.warn('Failed to parse cached transactions:', e);
     }
-  }, []);
+  }, [cachedTransactions]);
 
   // Load first page or reset when filters change
   useEffect(() => {
     async function loadTransactions() {
       // Only show loader if we don't have cached data yet
-      const cached = localStorage.getItem('sokopay_cached_txs');
-      if (!cached) {
+      if (transactions.length === 0) {
         setIsLoading(true);
       }
       setError('');
@@ -135,6 +141,57 @@ export default function Transactions() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (!transactions || transactions.length === 0) {
+      alert('No transactions to export.');
+      return;
+    }
+
+    const headers = [
+      'Transaction ID',
+      'Type',
+      'Direction',
+      'Local Amount',
+      'Local Currency',
+      'cUSD Amount',
+      'FX Rate',
+      'Status',
+      'Method',
+      'Counterpart',
+      'Notes',
+      'Date Created'
+    ];
+
+    const rows = transactions.map(tx => [
+      tx.id,
+      tx.type,
+      tx.direction,
+      tx.amountLocal || 0,
+      tx.currencyLocal || '',
+      tx.amountCusd || 0,
+      tx.exchangeRate || '',
+      tx.status,
+      tx.method || '',
+      tx.counterpart || '',
+      tx.notes || '',
+      new Date(tx.createdAt).toISOString()
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `SokoPay_Transactions_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const formatCurrency = (val: number | null) => {
     if (val === null) return '0';
     return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -171,14 +228,22 @@ export default function Transactions() {
     <div className="min-h-screen bg-[#FAF7F2] p-6 md:p-8 pb-24 font-body text-[#1A1208] relative">
       
       {/* Header */}
-      <div className="flex items-center gap-4 mb-8 max-w-[900px] mx-auto w-full">
-        <button 
-          onClick={() => navigate('/dashboard')} 
-          className="px-4 py-2 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-colors shadow-[2px_2px_0px_#1A1208] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_#1A1208] flex items-center gap-1 text-sm"
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 max-w-[900px] mx-auto w-full">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => navigate('/dashboard')} 
+            className="px-4 py-2 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-colors shadow-[2px_2px_0px_#1A1208] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_#1A1208] flex items-center gap-1 text-sm"
+          >
+            <ArrowLeft className="w-4 h-4" /> Dashboard
+          </button>
+          <h1 className="font-display text-xl md:text-2xl font-black uppercase tracking-wide">Transaction History</h1>
+        </div>
+        <button
+          onClick={handleExportCSV}
+          className="px-4 py-2 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-colors shadow-[2px_2px_0px_#1A1208] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0px_#1A1208] flex items-center gap-1.5 text-sm"
         >
-          <ArrowLeft className="w-4 h-4" /> Dashboard
+          <FileText className="w-4 h-4 text-[#C4622D]" /> Export CSV
         </button>
-        <h1 className="font-display text-xl md:text-2xl font-black uppercase tracking-wide">Transaction History</h1>
       </div>
 
       {error && (
