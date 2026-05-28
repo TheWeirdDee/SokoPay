@@ -784,151 +784,47 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* FEATURE INTEGRATION ROADMAP CARD */}
-        <div className="bg-[#F2EDE4] border-2 border-[#1A1208] p-6 rounded-xl shadow-card space-y-4">
-          <button 
-            type="button"
-            onClick={() => setShowRoadmap(!showRoadmap)}
-            className="w-full flex justify-between items-center border-b border-[#DDD5C5] pb-3 text-left"
-          >
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-[#C4622D]" />
-              <h2 className="font-display font-black text-lg text-[#1A1208]">SokoPay Feature Roadmap</h2>
-            </div>
-            {showRoadmap ? <ChevronUp className="w-4 h-4 text-[#7A6B55]" /> : <ChevronDown className="w-4 h-4 text-[#7A6B55]" />}
-          </button>
+        {/* Country Bridges & USSD Connection Settings */}
+        <div className="bg-[#FAF7F2] border-2 border-[#1A1208] p-6 rounded-xl shadow-card space-y-4">
+          <div className="flex items-center gap-2 border-b border-[#DDD5C5] pb-3">
+            <Sparkles className="w-5 h-5 text-[#C4622D]" />
+            <h2 className="font-display font-black text-lg text-[#1A1208]">Bridges & Offline Mode</h2>
+          </div>
 
-          {showRoadmap && (
-            <div className="space-y-4">
-              <p className="text-xs text-[#7A6B55] leading-relaxed">
-                The future expansion pipeline for SokoPay includes the following production bridges and autonomous layer interfaces:
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Country Bridges */}
+            <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
+                  <Landmark className="w-4 h-4 text-teal-600" /> Country Bridges
+                </span>
+                <span className="bg-[#5C6B3A]/15 text-[#5C6B3A] border border-[#5C6B3A]/30 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                  2 Active
+                </span>
+              </div>
+              <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+                Current active corridors: 🇳🇬 Nigeria & 🇰🇪 Kenya. 
               </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
-                {/* WhatsApp bot layer */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <MessageCircle className="w-4 h-4 text-green-600" /> WhatsApp Bot Layer
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Coming Q3
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    Check wallet balances, review transactions, and request direct payout triggers over standard WhatsApp prompts, designed for mobile-first merchants operating without a laptop.
-                  </p>
-                </div>
-
-                {/* SMS notifications */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <Smartphone className="w-4 h-4 text-[#C4622D]" /> SMS Notifications
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Coming Q4
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    Automated, offline SMS notifications sent immediately upon payment confirmation, enabling verification on basic feature phones when internet signal is weak.
-                  </p>
-                </div>
-
-                {/* Credit score + loan integration */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <Database className="w-4 h-4 text-purple-600" /> Credit Scoring via Muon
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Under Dev
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    Deconstructs payment velocity and historical volumes using Muon Oracle signatures to establish a trusted risk score, qualifying vendors for instant, low-interest liquidity loans.
-                  </p>
-                </div>
-
-                {/* Advanced analytics */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-blue-600" /> Advanced Analytics
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Coming Q4
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    Deep cashflow analytics, customer frequency heatmaps, and automatic revenue predictions powered by Gemini 2.0 to help merchants anticipate peak days and stock inventory accordingly.
-                  </p>
-                </div>
-
-                {/* Additional country bridges */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <Landmark className="w-4 h-4 text-teal-600" /> Additional Country Bridges
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      Documented
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    Expanding cross-border bridges to support Ghana (MTN Momo / Telecel), Uganda (Airtel Money), and South Africa (EFT settlement) for expanded pan-African supply chain corridors.
-                  </p>
-                </div>
-
-                {/* Merchant network directory */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <User className="w-4 h-4 text-indigo-600" /> Merchant Network Directory
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Coming Q1
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    A searchable directory of verified SokoPay businesses, enabling merchants to find B2B distributors and trade directly in stablecoins, bypassing banking delays.
-                  </p>
-                </div>
-
-                {/* Offline mode */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <WifiOff className="w-4 h-4 text-orange-600" /> Offline Mode (USSD Fallback)
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Under Dev
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    USSD interface to sign and submit Celo blockchain transaction intents completely offline. Transactions sync and broadcast once a local agent node connects to internet.
-                  </p>
-                </div>
-
-                {/* CSV export */}
-                <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
-                      <FileText className="w-4 h-4 text-slate-600" /> CSV & Ledger Export
-                    </span>
-                    <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      ⏳ Coming Q3
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#7A6B55] leading-relaxed">
-                    Download fully structured, tax-ready CSV files of payment request history, withdrawal records, and local exchange rate conversions at the click of a button.
-                  </p>
-                </div>
-
+              <div className="text-[10px] font-semibold text-[#7A6B55]/70 pt-1">
+                ⏳ Coming Q3: 🇬🇭 Ghana, 🇺🇬 Uganda, 🇿🇦 South Africa
               </div>
             </div>
-          )}
+
+            {/* Offline USSD mode */}
+            <div className="bg-[#FAF7F2] p-4 rounded-lg border-2 border-[#1A1208]/15 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#1A1208] flex items-center gap-1.5">
+                  <WifiOff className="w-4 h-4 text-orange-600" /> Offline USSD Connection
+                </span>
+                <span className="bg-[#5C6B3A]/15 text-[#5C6B3A] border border-[#5C6B3A]/30 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                  Sandbox Active
+                </span>
+              </div>
+              <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+                Dial <span className="font-mono font-bold text-[#1A1208]">*384*402#</span> on any standard phone to check balance, review recent logs, and request withdrawals offline.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* SIGN OUT ACTION */}
