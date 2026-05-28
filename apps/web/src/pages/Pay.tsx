@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { ArrowLeft, Send, Calendar, Clock, Trash2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Send, Calendar, Clock, Trash2, AlertTriangle, CheckCircle, Search, Building, Check } from 'lucide-react';
+import { useCache } from '../context/CacheContext';
+import PinModal from '../components/PinModal';
 
 interface ScheduledPayment {
   id: string;
@@ -18,15 +20,14 @@ interface ScheduledPayment {
 
 export default function Pay() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'instant' | 'schedule'>('instant');
-  const [balance, setBalance] = useState({ cusd: '0.00', currency: 'NGN', local: '0.00' });
-  const [loadingBalance, setLoadingBalance] = useState(true);
+  const { balance, updateBalance } = useCache();
+  const [activeTab, setActiveTab] = useState<'instant' | 'schedule' | 'directory'>('instant');
 
   // Instant Send Form States
   const [instantAddress, setInstantAddress] = useState('');
   const [instantAmount, setInstantAmount] = useState('');
   const [instantNotes, setInstantNotes] = useState('');
-  const [instantPaymentPassword, setInstantPaymentPassword] = useState('');
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [instantLoading, setInstantLoading] = useState(false);
   const [instantError, setInstantError] = useState('');
   const [instantSuccess, setInstantSuccess] = useState('');
@@ -47,16 +48,8 @@ export default function Pay() {
   const [scheduledList, setScheduledList] = useState<ScheduledPayment[]>([]);
   const [loadingScheduled, setLoadingScheduled] = useState(true);
 
-  const fetchBalanceAndMerchant = async () => {
-    try {
-      const response = await api.get('/merchant/me');
-      setBalance(response.data.balance);
-    } catch (err: any) {
-      console.error('Error fetching merchant details:', err);
-    } finally {
-      setLoadingBalance(false);
-    }
-  };
+  // Search filter for directory
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchScheduled = async () => {
     try {
@@ -70,11 +63,11 @@ export default function Pay() {
   };
 
   useEffect(() => {
-    fetchBalanceAndMerchant();
     fetchScheduled();
+    updateBalance();
   }, []);
 
-  const handleInstantSend = async (e: React.FormEvent) => {
+  const handleInstantSendSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setInstantError('');
     setInstantSuccess('');
@@ -91,23 +84,24 @@ export default function Pay() {
       return;
     }
 
-    if (amount > parseFloat(balance.cusd)) {
+    if (!balance || amount > parseFloat(balance.cusd)) {
       setInstantError('Insufficient balance to complete this transfer.');
       return;
     }
 
-    if (!instantPaymentPassword) {
-      setInstantError('Please enter your 4-digit payment PIN.');
-      return;
-    }
+    // Open PIN Modal to challenge the action
+    setIsPinModalOpen(true);
+  };
 
+  const executeInstantSend = async (verifiedPin: string) => {
+    const amount = parseFloat(instantAmount);
     setInstantLoading(true);
     try {
       const response = await api.post('/payments/send', {
         recipientAddress: instantAddress,
         amountCusd: amount,
         notes: instantNotes,
-        paymentPassword: instantPaymentPassword
+        paymentPassword: verifiedPin
       });
 
       setInstantSuccess(`Successfully sent ${amount} cUSD to ${instantAddress.substring(0, 6)}...${instantAddress.substring(38)}!`);
@@ -117,8 +111,7 @@ export default function Pay() {
       setInstantAddress('');
       setInstantAmount('');
       setInstantNotes('');
-      setInstantPaymentPassword('');
-      fetchBalanceAndMerchant();
+      updateBalance();
     } catch (err: any) {
       console.error('Instant payment error:', err);
       setInstantError(err.response?.data?.error || 'Failed to send payment.');
@@ -208,7 +201,7 @@ export default function Pay() {
       <div className="bg-bg-dark text-text-light p-5 rounded-xl border-2 border-border shadow-card mb-6 flex justify-between items-center">
         <div>
           <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider">Available Balance</span>
-          {loadingBalance ? (
+          {!balance ? (
             <div className="h-8 w-24 bg-border/20 animate-pulse mt-1 rounded"></div>
           ) : (
             <div className="font-display text-3xl font-black mt-0.5">{Number(balance.cusd).toFixed(2)} <span className="text-lg">cUSD</span></div>
@@ -216,7 +209,7 @@ export default function Pay() {
         </div>
         <div className="text-right">
           <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider">Local Value</span>
-          {loadingBalance ? (
+          {!balance ? (
             <div className="h-6 w-20 bg-border/20 animate-pulse mt-1 rounded ml-auto"></div>
           ) : (
             <div className="font-mono text-sm mt-0.5 text-accent font-bold">
@@ -252,12 +245,24 @@ export default function Pay() {
             <Calendar className="w-4 h-4" /> Schedule / Recurring
           </div>
         </button>
+        <button
+          onClick={() => setActiveTab('directory')}
+          className={`flex-1 pb-3 font-display font-bold text-sm text-center border-b-4 transition-colors ${
+            activeTab === 'directory'
+              ? 'border-accent text-accent'
+              : 'border-transparent text-text-muted hover:text-text'
+          }`}
+        >
+          <div className="flex justify-center items-center gap-2">
+            <Building className="w-4 h-4" /> B2B Directory
+          </div>
+        </button>
       </div>
 
       {/* Active Form */}
       <div className="bg-bg-card border-2 border-border rounded-xl p-5 shadow-card mb-8">
         {activeTab === 'instant' ? (
-          <form onSubmit={handleInstantSend} className="space-y-4">
+          <form onSubmit={handleInstantSendSubmit} className="space-y-4">
             <h2 className="font-display font-bold text-lg mb-2">Send Instant Payment</h2>
 
             {instantError && (
@@ -314,23 +319,11 @@ export default function Pay() {
               onChange={(e) => setInstantNotes(e.target.value)}
             />
 
-            <Input
-              label="4-Digit Payment PIN"
-              type="password"
-              pattern="[0-9]*"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="••••"
-              value={instantPaymentPassword}
-              onChange={(e) => setInstantPaymentPassword(e.target.value.replace(/\D/g, ''))}
-              required
-            />
-
             <Button type="submit" isLoading={instantLoading} className="w-full">
               Send Payment
             </Button>
           </form>
-        ) : (
+        ) : activeTab === 'schedule' ? (
           <form onSubmit={handleScheduleSend} className="space-y-4">
             <h2 className="font-display font-bold text-lg mb-2">Schedule Future Payment</h2>
 
@@ -414,6 +407,63 @@ export default function Pay() {
               Schedule Payment
             </Button>
           </form>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex justify-between items-start border-b border-border/40 pb-3">
+              <div>
+                <h2 className="font-display font-bold text-lg">B2B Merchant Directory</h2>
+                <p className="text-xs text-[#7A6B55] font-semibold mt-0.5">Find distributors and pay directly in stablecoins.</p>
+              </div>
+              <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-[#C4622D] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                ⏳ Sandbox Mode
+              </span>
+            </div>
+
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search verified SokoPay merchants..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-bg border-2 border-border focus:border-accent outline-none rounded-md transition-colors font-semibold text-sm"
+              />
+              <Search className="w-4 h-4 text-text-muted absolute left-3.5 top-3.5" />
+            </div>
+
+            <div className="space-y-3 pt-2">
+              {[
+                { name: 'Kola Wholesalers Ltd', phone: '+234 803 111 2222', country: 'NG', address: '0x32A1f28b4c798d1a334Bc108873E189680321288', industry: 'Agrochemicals & Fertilizers' },
+                { name: 'Amaka Retail Cosmetics', phone: '+234 812 333 4444', country: 'NG', address: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e', industry: 'Cosmetics & Hair wholesale' },
+                { name: 'Nairobi Agro-Suppliers', phone: '+254 712 345 678', country: 'KE', address: '0x1Fd23b8c4d798a1a334Cc108873E189680323399', industry: 'Farm Implements & Feed' },
+                { name: 'Mombasa Grain Distributors', phone: '+254 722 999 888', country: 'KE', address: '0x992d35Cc6634C0532925a3b844Bc454e4438f222', industry: 'Cereals & Pulses Wholesaler' },
+              ]
+                .filter(m => searchQuery === '' || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.industry.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map((m, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-bg border-2 border-border rounded-lg p-4 shadow-sm hover:shadow-card hover:bg-bg-card transition-all cursor-pointer flex justify-between items-center"
+                    onClick={() => {
+                      setInstantAddress(m.address);
+                      setActiveTab('instant');
+                    }}
+                  >
+                    <div className="space-y-1">
+                      <div className="font-bold text-sm text-[#1A1208] flex items-center gap-1.5">
+                        <span>{m.name}</span>
+                        <span>{m.country === 'NG' ? '🇳🇬' : '🇰🇪'}</span>
+                      </div>
+                      <span className="text-[10px] text-[#7A6B55] font-mono block">Address: {m.address.substring(0, 8)}...{m.address.substring(34)}</span>
+                      <span className="bg-[#FAF7F2] border border-[#DDD5C5] text-text-muted text-[8px] font-black uppercase px-2 py-0.5 rounded-full inline-block mt-1">
+                        {m.industry}
+                      </span>
+                    </div>
+                    <button className="px-3 py-1.5 bg-[#C4622D]/10 hover:bg-[#C4622D] hover:text-white border border-[#C4622D] text-[#C4622D] text-xs font-bold rounded transition-colors">
+                      Select
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
         )}
       </div>
 
@@ -479,6 +529,13 @@ export default function Pay() {
           </div>
         )}
       </div>
+
+      <PinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onSuccess={executeInstantSend}
+        description={`Confirm payment of ${instantAmount} cUSD to ${instantAddress.substring(0, 6)}...${instantAddress.substring(38)}`}
+      />
     </div>
   );
 }
