@@ -14,6 +14,8 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react';
+import { useCache } from '../context/CacheContext';
+import PinModal from '../components/PinModal';
 
 interface Message {
   id: string;
@@ -77,6 +79,7 @@ function parseMessageContent(content: string) {
 
 export default function Chat() {
   const navigate = useNavigate();
+  const { profile: merchant, withdrawalAccounts: accounts, fetchAccounts, updateBalance } = useCache();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -84,39 +87,38 @@ export default function Chat() {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [error, setError] = useState('');
   const [isMuted, setIsMuted] = useState(false);
-  const [merchantName, setMerchantName] = useState("Amaka");
+  const [showWhatsappBanner, setShowWhatsappBanner] = useState(true);
+  
   const isFirstLoad = useRef(true);
-  const hasSpokenIntro = useRef(false);
+  const [pendingApproval, setPendingApproval] = useState<any | null>(null);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
 
-  const speakMessage = (content: string) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis || isMuted) return;
+  const speakMessage = async (content: string) => {
+    if (isMuted) return;
 
     try {
-      window.speechSynthesis.cancel();
-      
       const parsed = parseMessageContent(content);
       const textToSpeak = parsed.text;
+      if (!textToSpeak) return;
 
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.rate = 0.95; 
-      utterance.pitch = 1.0;
-      
-      window.speechSynthesis.speak(utterance);
+      const isSwahili = /jambo|habari|mambo|asante/i.test(textToSpeak);
+      const languageCode = isSwahili ? 'sw-KE' : 'en-US';
+
+      const res = await api.post('/agent/speak', { text: textToSpeak, languageCode });
+      if (res.data.success && res.data.audioContent) {
+        const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
+        const audio = new Audio(audioUrl);
+        audio.play().catch(e => console.error('Audio play failed:', e));
+      }
     } catch (e) {
-      console.error('Speech synthesis error:', e);
+      console.warn('Google Cloud TTS failed, falling back to silent operations:', e);
     }
   };
   
-  // Chat Context States (for approvals)
-  const [accounts, setAccounts] = useState<WithdrawalAccount[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
-
   // Approval card action states
-  // Dict format: { [msgId]: { status: 'pending'|'loading'|'success'|'cancelled'|'error', errorMsg: string, txHash: string, trackingId: string, selectedAccountId: string } }
   const [cardStates, setCardStates] = useState<{ [msgId: string]: any }>({});
   
   // Withdrawal preview data states
-  // Dict format: { [msgId]: { loading: boolean, error?: string, data?: PreviewData } }
   const [previewStates, setPreviewStates] = useState<{ [msgId: string]: any }>({});
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -129,28 +131,6 @@ export default function Chat() {
     { text: "Show today's sales", value: "How much did I make today?" },
     { text: 'Show recent transactions', value: 'Show me my recent transactions' }
   ];
-
-  const fetchAccounts = async () => {
-    try {
-      const response = await api.get('/withdraw/accounts');
-      setAccounts(response.data.accounts || []);
-    } catch (err: any) {
-      console.error('Error fetching withdrawal accounts in chat:', err);
-    } finally {
-      setLoadingAccounts(false);
-    }
-  };
-
-  const fetchMerchantAndBalance = async () => {
-    try {
-      const response = await api.get('/merchant/me');
-      if (response.data.success && response.data.merchant) {
-        setMerchantName(response.data.merchant.businessName);
-      }
-    } catch (err: any) {
-      console.error('Error fetching merchant in chat:', err);
-    }
-  };
 
   // Fetch FX preview for a specific withdraw card
   const fetchWithdrawPreviewForCard = async (msgId: string, amountCusd: number) => {
@@ -194,15 +174,44 @@ export default function Chat() {
   // Initial loads
   useEffect(() => {
     async function initChat() {
+      fetchAccounts();
+      
       try {
         const res = await api.get('/agent/history');
-        setMessages(res.data.history);
+        const history = res.data.history;
+        setMessages(history);
+
+        if (history.length === 0) {
+          // Empty chat: generate personalized data-driven custom greeting!
+          setIsTyping(true);
+          try {
+            const welcomeRes = await api.post('/agent/message', { isInit: true, message: '__INIT__' });
+            const welcomeMsg: Message = {
+              id: Math.random().toString(),
+              role: 'assistant',
+              content: welcomeRes.data.reply,
+              wasVoice: false,
+              createdAt: new Date().toISOString()
+            };
+            setMessages([welcomeMsg]);
+          } catch (e) {
+            console.error('Failed to trigger custom welcome greeting:', e);
+            const fallbackMsg: Message = {
+              id: Math.random().toString(),
+              role: 'assistant',
+              content: 'Good morning! Welcome to SokoPay. How can I help you manage your business finances today?',
+              wasVoice: false,
+              createdAt: new Date().toISOString()
+            };
+            setMessages([fallbackMsg]);
+          } finally {
+            setIsTyping(false);
+          }
+        }
       } catch (err: any) {
         console.error(err);
         setError('Failed to load chat history.');
       }
-      fetchAccounts();
-      fetchMerchantAndBalance();
     }
     initChat();
   }, []);
@@ -221,15 +230,6 @@ export default function Chat() {
       speakMessage(lastMsg.content);
     }
   }, [messages, isTyping]);
-
-  useEffect(() => {
-    if (merchantName && messages.length === 0 && !hasSpokenIntro.current && !isMuted) {
-      hasSpokenIntro.current = true;
-      setTimeout(() => {
-        speakMessage(`Good morning ${merchantName}! You made 0 Naira yesterday. Your best day this week was — well, today is day one. Let's change that!`);
-      }, 1000);
-    }
-  }, [merchantName, messages, isMuted]);
 
   const handleSendMessage = async (textToSend: string) => {
     if (!textToSend.trim() || isTyping) return;
@@ -362,12 +362,18 @@ export default function Chat() {
     }));
   };
 
-  const handleConfirmPayment = async (msgId: string, recipientAddress: string, amountCusd: number, notes: string) => {
-    const pin = prompt('Enter your 4-digit Payment PIN to authorize this transfer:');
-    if (!pin) {
-      return;
-    }
+  const handleConfirmPayment = (msgId: string, recipientAddress: string, amountCusd: number, notes: string) => {
+    setPendingApproval({
+      type: 'payment',
+      msgId,
+      recipientAddress,
+      amountCusd,
+      notes
+    });
+    setIsPinModalOpen(true);
+  };
 
+  const executeConfirmPayment = async (msgId: string, recipientAddress: string, amountCusd: number, notes: string, pin: string) => {
     setCardStates(prev => ({
       ...prev,
       [msgId]: { ...prev[msgId], status: 'loading' }
@@ -391,7 +397,7 @@ export default function Chat() {
       }));
 
       // Reload balance context
-      fetchMerchantAndBalance();
+      updateBalance();
     } catch (err: any) {
       console.error('AI Card payment failure:', err);
       setCardStates(prev => ({
@@ -405,7 +411,7 @@ export default function Chat() {
     }
   };
 
-  const handleConfirmWithdrawal = async (msgId: string, amountCusd: number, withdrawalAccountId: string) => {
+  const handleConfirmWithdrawal = (msgId: string, amountCusd: number, withdrawalAccountId: string) => {
     if (!withdrawalAccountId) {
       setCardStates(prev => ({
         ...prev,
@@ -417,7 +423,16 @@ export default function Chat() {
       }));
       return;
     }
+    setPendingApproval({
+      type: 'withdraw',
+      msgId,
+      amountCusd,
+      withdrawalAccountId
+    });
+    setIsPinModalOpen(true);
+  };
 
+  const executeConfirmWithdrawal = async (msgId: string, amountCusd: number, withdrawalAccountId: string, pin: string) => {
     setCardStates(prev => ({
       ...prev,
       [msgId]: { ...prev[msgId], status: 'loading' }
@@ -426,7 +441,8 @@ export default function Chat() {
     try {
       const response = await api.post('/withdraw/execute', {
         amountCusd,
-        withdrawalAccountId
+        withdrawalAccountId,
+        paymentPassword: pin
       });
 
       setCardStates(prev => ({
@@ -440,7 +456,7 @@ export default function Chat() {
       }));
 
       // Reload balance context
-      fetchMerchantAndBalance();
+      updateBalance();
     } catch (err: any) {
       console.error('AI Card withdrawal failure:', err);
       setCardStates(prev => ({
@@ -732,9 +748,6 @@ export default function Chat() {
 
         <button
           onClick={() => {
-            if (!isMuted) {
-              window.speechSynthesis?.cancel();
-            }
             setIsMuted(!isMuted);
           }}
           className="px-3 py-1 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-all shadow-[2px_2px_0px_#1A1208] text-xs active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 text-[#1A1208]"
@@ -754,6 +767,25 @@ export default function Chat() {
         </button>
       </header>
 
+      {/* WhatsApp Bot Banner */}
+      {showWhatsappBanner && (
+        <div className="bg-[#E4ECE0] border-b-2 border-b-[#1A1208] p-3 text-xs flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💬</span>
+            <div>
+              <span className="font-bold text-[#1A1208]">WhatsApp Bot Layer (Coming Soon)</span>
+              <p className="text-[10px] text-[#7A6B55] font-semibold mt-0.5">Control your business finances and trigger payouts offline via WhatsApp commands. Coming Q3.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setShowWhatsappBanner(false)}
+            className="text-[10px] font-bold text-[#1A1208] hover:underline bg-white/50 border border-[#DDD5C5] px-2 py-0.5 rounded"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Error message */}
       {error && (
         <div className="bg-[#B5271E]/10 border-b-2 border-b-[#B5271E] text-[#B5271E] p-3 text-center font-bold text-xs shrink-0 select-none flex items-center justify-center gap-1.5">
@@ -767,16 +799,10 @@ export default function Chat() {
           <div className="h-full flex flex-col justify-center items-center text-center text-[#7A6B55] max-w-sm mx-auto space-y-4">
             <Bot className="w-12 h-12 text-[#C4622D] animate-bounce" />
             <div>
-              <h2 className="font-display font-bold text-lg text-[#1A1208]">Good morning, {merchantName}!</h2>
+              <h2 className="font-display font-bold text-lg text-[#1A1208]">Good morning, {merchant?.businessName || 'Amaka'}!</h2>
               <p className="text-xs mt-1.5 leading-relaxed font-semibold text-[#1A1208]">
-                "You made ₦0 yesterday. Your best day this week was — well, today is day one. Let's change that 💪"
+                Loading personalized greeting...
               </p>
-            </div>
-            <div className="w-full text-left bg-[#F2EDE4] p-3 rounded-lg border border-[#DDD5C5] text-[11px] font-semibold space-y-1">
-              <p className="text-[#1A1208] font-bold">Try asking me:</p>
-              <p className="italic">"How body? How much moni I make today?"</p>
-              <p className="italic">"Show me my Celo balance"</p>
-              <p className="italic">"What are my recent transactions?"</p>
             </div>
           </div>
         ) : (
@@ -802,7 +828,18 @@ export default function Chat() {
                         <Mic className="w-3.5 h-3.5" /> Voice Transcript:
                       </span>
                     )}
-                    <p>{parsed.text}</p>
+                    <div className="flex justify-between items-start gap-3">
+                      <p className="flex-1">{parsed.text}</p>
+                      {!isUser && (
+                        <button
+                          onClick={() => speakMessage(parsed.text)}
+                          className="shrink-0 p-1.5 rounded-full bg-white/60 hover:bg-white text-[#1A1208] transition-colors border border-[#1A1208]/15"
+                          title="Replay Voice"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     
                     {/* Render Interactive Action Cards */}
                     {parsed.type === 'payment' && parsed.data && renderPaymentApprovalCard(msg, parsed.data)}
@@ -901,6 +938,40 @@ export default function Chat() {
           {isRecording ? "RELEASE BUTTON TO SEND VOICE NOTE" : "HOLD MIC BUTTON TO SPEAK COGNITIVE ACTIONS"}
         </p>
       </footer>
+
+      <PinModal
+        isOpen={isPinModalOpen}
+        onClose={() => {
+          setIsPinModalOpen(false);
+          setPendingApproval(null);
+        }}
+        onSuccess={async (pin) => {
+          if (!pendingApproval) return;
+          if (pendingApproval.type === 'payment') {
+            await executeConfirmPayment(
+              pendingApproval.msgId,
+              pendingApproval.recipientAddress,
+              pendingApproval.amountCusd,
+              pendingApproval.notes,
+              pin
+            );
+          } else if (pendingApproval.type === 'withdraw') {
+            await executeConfirmWithdrawal(
+              pendingApproval.msgId,
+              pendingApproval.amountCusd,
+              pendingApproval.withdrawalAccountId,
+              pin
+            );
+          }
+          setIsPinModalOpen(false);
+          setPendingApproval(null);
+        }}
+        description={
+          pendingApproval?.type === 'payment'
+            ? `Confirm payment of ${pendingApproval.amountCusd} cUSD to ${pendingApproval.recipientAddress.substring(0, 6)}...`
+            : `Confirm withdrawal of ${pendingApproval?.amountCusd} cUSD`
+        }
+      />
     </div>
   );
 }
