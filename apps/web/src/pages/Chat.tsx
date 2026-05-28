@@ -924,7 +924,7 @@ export default function Chat() {
                     <div className="flex justify-between items-start gap-3">
                       <p className="flex-1">{parsed.text}</p>
                       {!isUser && (() => {
-                        const isIdle = playingMessageId !== msg.id && !mutedMessageIds.includes(msg.id);
+
                         const isPlaying = playingMessageId === msg.id;
                         const isMutedState = mutedMessageIds.includes(msg.id);
                         
