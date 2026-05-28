@@ -494,30 +494,6 @@ export default function Dashboard() {
           {/* Right Column: Recent Transactions & AI Agent Card */}
           <div className="w-full md:w-[400px] space-y-6">
             
-            {/* Credit Score Progress Card */}
-            <div className="w-full bg-[#F2EDE4] border-2 border-[#1A1208] p-5 rounded-xl shadow-card">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-black text-[#1A1208] uppercase tracking-wider flex items-center gap-1.5">
-                  <Database className="w-4 h-4 text-[#C4622D]" /> Credit Score — Under Development
-                </span>
-                <span className="text-[9px] font-black text-[#C4622D] bg-[#FCEAE2] border border-[#C4622D]/30 px-2 py-0.5 rounded-full">
-                  Muon Oracle Syncing
-                </span>
-              </div>
-              <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
-                Your 90-day transaction history will unlock access to business loans.
-              </p>
-              <div className="mt-3 space-y-1.5">
-                <div className="w-full bg-[#DDD5C5] h-3 rounded-full overflow-hidden border border-[#1A1208]/20">
-                  <div className="bg-[#5C6B3A] h-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
-                </div>
-                <div className="flex justify-between text-[10px] font-bold text-[#7A6B55]">
-                  <span>{daysLeft} days to go</span>
-                  <span>{percent}% completed</span>
-                </div>
-              </div>
-              <span className="text-[9px] text-[#7A6B55]/70 block mt-2 font-mono font-bold">Powered by Muon Network</span>
-            </div>
 
             {/* Recent Transactions */}
             <section className="space-y-3">
@@ -606,6 +582,31 @@ export default function Dashboard() {
                 </p>
               </div>
             </section>
+
+            {/* Credit Score Progress Card */}
+            <div className="w-full bg-[#F2EDE4] border-2 border-[#1A1208] p-5 rounded-xl shadow-card">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-black text-[#1A1208] uppercase tracking-wider flex items-center gap-1.5">
+                  <Database className="w-4 h-4 text-[#C4622D]" /> Credit Score — Under Development
+                </span>
+                <span className="text-[9px] font-black text-[#C4622D] bg-[#FCEAE2] border border-[#C4622D]/30 px-2 py-0.5 rounded-full">
+                  Muon Oracle Syncing
+                </span>
+              </div>
+              <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+                Your 90-day transaction history will unlock access to business loans.
+              </p>
+              <div className="mt-3 space-y-1.5">
+                <div className="w-full bg-[#DDD5C5] h-3 rounded-full overflow-hidden border border-[#1A1208]/20">
+                  <div className="bg-[#5C6B3A] h-full transition-all duration-500" style={{ width: `${percent}%` }}></div>
+                </div>
+                <div className="flex justify-between text-[10px] font-bold text-[#7A6B55]">
+                  <span>{daysLeft} days to go</span>
+                  <span>{percent}% completed</span>
+                </div>
+              </div>
+              <span className="text-[9px] text-[#7A6B55]/70 block mt-2 font-mono font-bold">Powered by Muon Network</span>
+            </div>
             
           </div>
           
