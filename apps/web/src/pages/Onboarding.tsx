@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, Check, X, Shield, Lock, Landmark } from 'lucide-react';
 
 const COUNTRIES = [
   { code: 'NG', dialCode: '+234', name: 'Nigeria' },
@@ -19,11 +20,22 @@ export default function Onboarding() {
   // OTP & Setup State
   const [otp, setOtp] = useState('');
   const [businessName, setBusinessName] = useState('');
+  
+  // Step 3.5: Password State
   const [password, setPassword] = useState('');
-  const [paymentPassword, setPaymentPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Step 3.6: PIN State
+  const [paymentPin, setPaymentPin] = useState('');
+  const [confirmPaymentPin, setConfirmPaymentPin] = useState('');
 
   // Login State
   const [loginPassword, setLoginPassword] = useState('');
+
+  // Step 6: OTP Login Password Challenge State
+  const [otpLoginPassword, setOtpLoginPassword] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -80,13 +92,19 @@ export default function Onboarding() {
         businessName,
         country: selectedCountry.code,
         password,
-        paymentPassword
+        paymentPin
       });
-      localStorage.setItem('sokopay_token', res.data.token);
-      if (step === 3) {
-        setStep(4);
+      
+      if (res.data.requiresPassword) {
+        // Existing user logging in via OTP, need to prompt for password
+        setStep(6);
       } else {
-        navigate('/dashboard');
+        localStorage.setItem('sokopay_token', res.data.token);
+        if (step === 3.6) {
+          setStep(4);
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err: any) {
       if (err.response?.data?.error === 'businessName and country required for signup') {
@@ -99,20 +117,60 @@ export default function Onboarding() {
     }
   };
 
-  const handleSetupProfile = async (e: React.FormEvent) => {
+  const handleOTPLoginWithPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!businessName) {
+    setError('');
+    setIsLoading(true);
+    try {
+      const res = await api.post('/auth/verify-otp', {
+        phone: getFullPhone(),
+        otp,
+        password: otpLoginPassword
+      });
+      localStorage.setItem('sokopay_token', res.data.token);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Incorrect password.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSetupBusinessName = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!businessName.trim()) {
       setError('Business Name is required');
       return;
     }
-    if (!password || password.length < 6) {
-      setError('Login Password must be at least 6 characters');
+    setError('');
+    setStep(3.5);
+  };
+
+  // Password requirements checks
+  const isMinLength = password.length >= 8;
+  const hasNumber = /\d/.test(password);
+  const passwordsMatch = password === confirmPassword && password !== '';
+  const isPasswordValid = isMinLength && hasNumber && passwordsMatch;
+
+  const handleSetupPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isPasswordValid) {
+      setError('Please satisfy all password strength requirements.');
       return;
     }
-    if (!paymentPassword || paymentPassword.length !== 4 || isNaN(Number(paymentPassword))) {
-      setError('Payment PIN must be exactly 4 digits');
+    setError('');
+    setStep(3.6);
+  };
+
+  const isPinValid = paymentPin.length === 4 && paymentPin === confirmPaymentPin;
+
+  const handleSetupPinAndWallet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isPinValid) {
+      setError('PINs must match and be exactly 4 digits.');
       return;
     }
+    setError('');
     await handleVerifyOTP(e);
   };
 
@@ -134,26 +192,80 @@ export default function Onboarding() {
     }
   };
 
+  // Reusable Pin Box Group helper
+  const PinInputGroup = ({ value, onChange, idPrefix }: { value: string; onChange: (val: string) => void; idPrefix: string }) => {
+    const boxes = [0, 1, 2, 3];
+    
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>, idx: number) => {
+      const val = e.target.value.replace(/\D/g, '');
+      if (!val) return;
+      const currentVal = value.split('');
+      currentVal[idx] = val[val.length - 1]; // take last digit
+      const newVal = currentVal.join('');
+      onChange(newVal);
+
+      // Auto-focus next input
+      if (idx < 3) {
+        const nextInput = document.getElementById(`${idPrefix}-${idx + 1}`);
+        nextInput?.focus();
+      }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, idx: number) => {
+      if (e.key === 'Backspace') {
+        const currentVal = value.split('');
+        // If current box is empty, focus previous and clear it
+        if (!currentVal[idx] && idx > 0) {
+          const prevInput = document.getElementById(`${idPrefix}-${idx - 1}`);
+          prevInput?.focus();
+          currentVal[idx - 1] = '';
+        } else {
+          currentVal[idx] = '';
+        }
+        onChange(currentVal.join(''));
+      }
+    };
+
+    return (
+      <div className="flex justify-center gap-4 py-2">
+        {boxes.map((_, idx) => (
+          <input
+            key={idx}
+            id={`${idPrefix}-${idx}`}
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={1}
+            value={value[idx] || ''}
+            onChange={(e) => handleChange(e, idx)}
+            onKeyDown={(e) => handleKeyDown(e, idx)}
+            className="w-12 h-12 text-center text-xl font-bold bg-[#FAF7F2] border-2 border-[#1A1208] focus:border-[#C4622D] rounded-xl outline-none transition-colors"
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-screen flex flex-col justify-center px-6 py-12">
-      <div className="mb-10 text-center">
-        <h1 className="font-display text-4xl font-bold text-accent mb-2">SokoPay</h1>
-        <p className="text-text-muted">Your AI Financial Back-Office</p>
+    <div className="min-h-screen flex flex-col justify-center px-6 py-12 bg-[#FAF7F2]">
+      <div className="mb-8 text-center">
+        <h1 className="font-display text-4xl font-black text-[#1A1208] mb-2 tracking-tight">SokoPay</h1>
+        <p className="text-[#7A6B55] font-semibold">Your AI Financial Back-Office</p>
       </div>
 
-      <div className="bg-bg-card p-8 rounded-xl shadow-card border-2 border-border max-w-md mx-auto w-full">
-        {error && <div className="mb-6 p-4 bg-error/10 text-error rounded-lg text-sm font-semibold">{error}</div>}
+      <div className="bg-[#F2EDE4] p-8 rounded-2xl shadow-card border-2 border-[#1A1208] max-w-md mx-auto w-full relative">
+        {error && <div className="mb-6 p-4 bg-[#B5271E]/10 border-2 border-[#B5271E] text-[#B5271E] rounded-xl text-xs font-bold">{error}</div>}
 
+        {/* STEP 1: Phone Verification */}
         {step === 1 && (
-          <form onSubmit={handleRequestOTP}>
-            <h2 className="font-display font-bold text-2xl mb-6">Welcome</h2>
+          <form onSubmit={handleRequestOTP} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Welcome to SokoPay</h2>
 
-            <div className="mb-6">
-              <label className="block mb-2 text-sm font-semibold text-text-muted">Enter Your Phone Number</label>
-              <div className="flex items-center bg-bg border-2 border-border focus-within:border-accent rounded-xl overflow-hidden transition-colors">
-
+            <div>
+              <label className="block mb-2 text-xs font-bold text-[#7A6B55] uppercase tracking-wider">Enter Phone Number</label>
+              <div className="flex items-center bg-[#FAF7F2] border-2 border-[#1A1208] focus-within:border-[#C4622D] rounded-xl overflow-hidden transition-colors">
                 {/* Country Selector */}
-                <div className="relative flex items-center bg-bg-card px-3 py-3 border-r-2 border-border">
+                <div className="relative flex items-center bg-[#F2EDE4] px-3 py-3 border-r-2 border-[#1A1208]">
                   <select
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     value={selectedCountry.code}
@@ -164,20 +276,20 @@ export default function Onboarding() {
                     ))}
                   </select>
                   <div className="flex items-center gap-2 pointer-events-none">
-                    <span className="text-sm font-semibold text-text-muted">{selectedCountry.code}</span>
-                    <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    <span className="text-xs font-black text-[#1A1208]">{selectedCountry.code}</span>
+                    <svg className="w-3.5 h-3.5 text-[#1A1208]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"></path></svg>
                   </div>
                 </div>
 
                 {/* Dial Code Prefix */}
-                <div className="pl-4 pr-1 py-3 text-text-muted font-semibold bg-bg select-none">
+                <div className="pl-4 pr-1 py-3 text-[#7A6B55] font-bold select-none text-sm">
                   {selectedCountry.dialCode}
                 </div>
 
                 {/* Phone Input */}
                 <input
                   type="tel"
-                  className="flex-1 px-2 py-3 bg-bg outline-none font-semibold text-text"
+                  className="flex-1 px-2 py-3 bg-transparent outline-none font-bold text-[#1A1208] text-sm"
                   placeholder="803 123 4567"
                   value={localPhone}
                   onChange={(e) => setLocalPhone(e.target.value.replace(/\D/g, ''))}
@@ -186,14 +298,15 @@ export default function Onboarding() {
               </div>
             </div>
 
-            <Button type="submit" isLoading={isLoading} className="w-full text-lg py-4">Continue</Button>
+            <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Continue</Button>
           </form>
         )}
 
+        {/* STEP 2: Verify OTP Code */}
         {step === 2 && (
-          <form onSubmit={handleVerifyOTP}>
-            <h2 className="font-display font-bold text-2xl mb-4">Enter Code</h2>
-            <p className="text-sm text-text-muted mb-6">We sent a 6-digit verification code to {selectedCountry.dialCode} {localPhone}</p>
+          <form onSubmit={handleVerifyOTP} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Verify OTP</h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">We sent a 6-digit verification code to {selectedCountry.dialCode} {localPhone}</p>
             <Input
               label="OTP Code"
               placeholder="123456"
@@ -201,107 +314,222 @@ export default function Onboarding() {
               onChange={(e) => setOtp(e.target.value)}
               required
             />
-            <Button type="submit" isLoading={isLoading} className="w-full text-lg py-4 mt-2">Verify OTP</Button>
+            <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Verify Code</Button>
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="mt-6 text-sm font-semibold text-accent w-full text-center hover:underline"
+              className="text-xs font-bold text-[#C4622D] w-full text-center hover:underline"
             >
-              Wrong number?
+              Wrong phone number?
             </button>
           </form>
         )}
 
+        {/* STEP 3: Business Profile setup */}
         {step === 3 && (
-          <form onSubmit={handleSetupProfile}>
-            <h2 className="font-display font-bold text-2xl mb-6">Account Setup</h2>
+          <form onSubmit={handleSetupBusinessName} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208] flex items-center gap-2">
+              <Landmark className="w-6 h-6 text-[#C4622D]" /> Profile Setup
+            </h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">Let's create your storefront identity on SokoPay.</p>
             
-            <div className="space-y-4">
-              <Input
-                label="Business Name"
-                placeholder="e.g. Mama Joy Market"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                required
-              />
+            <Input
+              label="Business Name"
+              placeholder="e.g. Mama Joy Market Store"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              required
+            />
 
-              <Input
-                label="Create Login Password"
-                type="password"
-                placeholder="Min 6 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-
-              <div>
-                <label className="block text-sm font-semibold text-text-muted mb-1">Create 4-Digit Payment PIN</label>
-                <input
-                  type="password"
-                  pattern="[0-9]*"
-                  inputMode="numeric"
-                  maxLength={4}
-                  placeholder="e.g. 1234"
-                  className="w-full px-4 py-3 bg-bg border-2 border-border focus:border-accent rounded-xl outline-none font-semibold text-text tracking-widest text-center"
-                  value={paymentPassword}
-                  onChange={(e) => setPaymentPassword(e.target.value.replace(/\D/g, ''))}
-                  required
-                />
-                <span className="text-[10px] text-text-muted block mt-1">This PIN will be requested to authorize payments and withdrawals.</span>
-              </div>
-            </div>
-
-            <Button type="submit" isLoading={isLoading} className="w-full text-lg py-4 mt-6">Create Agent Wallet</Button>
+            <Button type="submit" className="w-full text-base py-3">Continue</Button>
           </form>
         )}
 
+        {/* STEP 3.5: Create Password */}
+        {step === 3.5 && (
+          <form onSubmit={handleSetupPassword} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208] flex items-center gap-2">
+              <Lock className="w-6 h-6 text-[#C4622D]" /> Create Password
+            </h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">You'll use this password to securely log back in to your back-office.</p>
+
+            <div className="space-y-4">
+              {/* Password Input */}
+              <div className="relative">
+                <Input
+                  label="Password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Create password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 text-[#7A6B55]"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Confirm Password Input */}
+              <div className="relative">
+                <Input
+                  label="Confirm Password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  placeholder="Repeat password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-9 text-[#7A6B55]"
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Password Validation List */}
+            <div className="bg-[#FAF7F2] p-4 rounded-xl border border-[#DDD5C5] space-y-2 text-xs font-bold text-[#7A6B55]">
+              <div className="flex items-center gap-2">
+                {isMinLength ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
+                <span>At least 8 characters long</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasNumber ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
+                <span>At least one number</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {passwordsMatch ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
+                <span>Passwords match</span>
+              </div>
+            </div>
+
+            <Button type="submit" disabled={!isPasswordValid} className="w-full text-base py-3">Continue</Button>
+          </form>
+        )}
+
+        {/* STEP 3.6: Set Payment PIN */}
+        {step === 3.6 && (
+          <form onSubmit={handleSetupPinAndWallet} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208] flex items-center gap-2">
+              <Shield className="w-6 h-6 text-[#C4622D]" /> Create Payment PIN
+            </h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+              This 4-digit authorization PIN will be requested to secure and confirm every outgoing payment and off-ramp withdrawal.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-[#7A6B55] uppercase tracking-wider text-center mb-1">Enter 4-Digit PIN</label>
+                <PinInputGroup value={paymentPin} onChange={setPaymentPin} idPrefix="setup-pin" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#7A6B55] uppercase tracking-wider text-center mb-1">Confirm 4-Digit PIN</label>
+                <PinInputGroup value={confirmPaymentPin} onChange={setConfirmPaymentPin} idPrefix="confirm-pin" />
+              </div>
+            </div>
+
+            <Button type="submit" isLoading={isLoading} disabled={!isPinValid} className="w-full text-base py-3">
+              Create Agent Wallet
+            </Button>
+          </form>
+        )}
+
+        {/* STEP 4: Registration Success */}
         {step === 4 && (
-          <div className="text-center py-6">
-            <div className="w-20 h-20 bg-success/20 text-success rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">
+          <div className="text-center py-6 space-y-6">
+            <div className="w-20 h-20 bg-success/20 text-[#5C6B3A] rounded-full flex items-center justify-center mx-auto text-4xl border-2 border-[#1A1208] shadow-card">
               ✓
             </div>
-            <h2 className="font-display font-bold text-2xl mb-3">Wallet Created!</h2>
-            <p className="text-text-muted mb-8 leading-relaxed">Your AI agent is ready to start accepting payments on Celo.</p>
-            <Button onClick={() => navigate('/dashboard')} className="w-full py-4 text-lg">Go to Dashboard</Button>
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Wallet Ready!</h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">Your secure agent EOA wallet has been generated on the Celo network. You can start accepting payments now.</p>
+            <Button onClick={() => navigate('/dashboard')} className="w-full py-3.5 text-base">Go to Dashboard</Button>
           </div>
         )}
 
+        {/* STEP 5: Traditional Login Password Challenge */}
         {step === 5 && (
-          <form onSubmit={handleLoginWithPassword}>
-            <h2 className="font-display font-bold text-2xl mb-4">Enter Password</h2>
-            <p className="text-sm text-text-muted mb-6">Welcome back! Enter your login password for {selectedCountry.dialCode} {localPhone}</p>
+          <form onSubmit={handleLoginWithPassword} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Enter Password</h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">Welcome back! Verify your identity with your password to log in.</p>
             
-            <div className="space-y-4 mb-6">
-              <Input
-                label="Password"
-                type="password"
-                placeholder="Enter password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                required
-              />
+            <div className="space-y-4">
+              <div className="relative">
+                <Input
+                  label="Password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter login password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 text-[#7A6B55]"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
-            <Button type="submit" isLoading={isLoading} className="w-full text-lg py-4">Login</Button>
+            <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Login</Button>
             
-            <div className="flex flex-col gap-3 mt-6 text-center">
+            <div className="flex flex-col gap-3 text-center pt-2">
               <button
                 type="button"
                 onClick={handleRequestOTPFallback}
-                className="text-sm font-semibold text-accent hover:underline"
+                className="text-xs font-bold text-[#C4622D] hover:underline"
               >
                 Log in with OTP instead
               </button>
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="text-xs text-text-muted hover:underline"
+                className="text-xs text-[#7A6B55] hover:underline"
               >
                 Change phone number
               </button>
             </div>
           </form>
         )}
+
+        {/* STEP 6: OTP Login Password Challenge */}
+        {step === 6 && (
+          <form onSubmit={handleOTPLoginWithPassword} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Confirm Login</h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">OTP verified. Please verify your login password to complete access registration.</p>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <Input
+                  label="Login Password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter password"
+                  value={otpLoginPassword}
+                  onChange={(e) => setOtpLoginPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 text-[#7A6B55]"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Complete Login</Button>
+          </form>
+        )}
+
       </div>
     </div>
   );
