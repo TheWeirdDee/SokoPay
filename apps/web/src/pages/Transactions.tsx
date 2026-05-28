@@ -30,7 +30,7 @@ interface Stats {
 
 export default function Transactions() {
   const navigate = useNavigate();
-  const { transactions: cachedTransactions } = useCache();
+  const { transactions: cachedTransactions, fetchTransactions, profile: contextProfile } = useCache();
   const [transactions, setTransactions] = useState<Transaction[]>(cachedTransactions || []);
   const [stats, setStats] = useState<Stats>({ totalInflow: 0, totalOutflow: 0, totalCash: 0 });
   const [page, setPage] = useState(1);
@@ -68,17 +68,51 @@ export default function Transactions() {
   // Load first page or reset when filters change
   useEffect(() => {
     async function loadTransactions() {
-      // Only show loader if we don't have cached data yet
+      let country = 'NG';
+      if (contextProfile) {
+        country = contextProfile.country;
+      } else {
+        try {
+          const profileRes = await api.get('/merchant/me');
+          country = profileRes.data.merchant.country;
+        } catch (e) {}
+      }
+      setCurrencySymbol(country === 'KE' ? 'KSh' : '₦');
+
+      // If default query (no search/filter), check cache first
+      if (filterType === 'all' && searchQuery.trim() === '') {
+        if (cachedTransactions && cachedTransactions.length > 0) {
+          setTransactions(cachedTransactions);
+          setIsLoading(false);
+        }
+
+        try {
+          const fresh = await fetchTransactions();
+          if (fresh && fresh.length > 0) {
+            setTransactions(prev => {
+              const prevIds = new Set(prev.map(t => t.id));
+              const newOnly = fresh.filter((t: any) => !prevIds.has(t.id));
+              if (newOnly.length > 0) {
+                return [...newOnly, ...prev];
+              }
+              return prev;
+            });
+          }
+        } catch (err: any) {
+          console.error(err);
+          setError(err.response?.data?.error || 'Failed to load transaction history.');
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // If searching or filtering, perform standard query
       if (transactions.length === 0) {
         setIsLoading(true);
       }
       setError('');
       try {
-        // Fetch merchant details first to resolve currency context
-        const profileRes = await api.get('/merchant/me');
-        const country = profileRes.data.merchant.country;
-        setCurrencySymbol(country === 'KE' ? 'KSh' : '₦');
- 
         const params: any = {
           page: 1,
           limit: 10
@@ -96,7 +130,6 @@ export default function Transactions() {
         setTotalPages(res.data.pagination.totalPages);
         setPage(1);
 
-        // Update local cache
         try {
           localStorage.setItem('sokopay_cached_txs', JSON.stringify(res.data.transactions));
           localStorage.setItem('sokopay_cached_stats', JSON.stringify(res.data.stats || { totalInflow: 0, totalOutflow: 0, totalCash: 0 }));
@@ -112,7 +145,7 @@ export default function Transactions() {
     }
  
     loadTransactions();
-  }, [filterType, searchQuery]);
+  }, [filterType, searchQuery, cachedTransactions]);
 
   // Load more pages
   const handleLoadMore = async () => {
