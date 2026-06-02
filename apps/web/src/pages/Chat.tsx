@@ -120,49 +120,87 @@ export default function Chat() {
     }
   };
 
+  // Strip markdown and special characters before sending to TTS
+  const stripForTTS = (text: string): string => {
+    return text
+      .replace(/[*_~`#>|[\](){}]/g, '')   // remove markdown symbols
+      .replace(/\[PAYMENT_APPROVAL\].*/s, '')
+      .replace(/\[WITHDRAW_APPROVAL\].*/s, '')
+      .replace(/https?:\/\/\S+/g, '')      // remove URLs
+      .replace(/0x[a-fA-F0-9]+/g, '')      // remove blockchain hashes
+      .replace(/\n{2,}/g, '. ')            // collapse double newlines to period
+      .replace(/\n/g, ' ')                 // single newlines to space
+      .replace(/\s{2,}/g, ' ')             // collapse multiple spaces
+      .trim();
+  };
+
+  // Split text at sentence boundaries for sequential playback
+  const splitSentences = (text: string): string[] => {
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    const chunks: string[] = [];
+    let current = '';
+    for (const s of sentences) {
+      if ((current + s).length > 400) {
+        if (current) chunks.push(current.trim());
+        current = s;
+      } else {
+        current += s;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
+  };
+
   const speakMessage = async (content: string, messageId?: string) => {
     if (isMuted) return;
 
     try {
       const parsed = parseMessageContent(content);
-      const textToSpeak = parsed.text;
-      if (!textToSpeak) return;
+      const rawText = parsed.text;
+      if (!rawText) return;
 
-      const isSwahili = /jambo|habari|mambo|asante/i.test(textToSpeak);
-      const languageCode = isSwahili ? 'sw-KE' : 'en-US';
+      const cleanText = stripForTTS(rawText);
+      if (!cleanText) return;
 
-      try {
-        const res = await api.post('/agent/speak', { text: textToSpeak, languageCode });
-        if (res.data.success && res.data.audioContent) {
-          const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
-          const audio = new Audio(audioUrl);
-          currentAudioRef.current = audio;
+      // Detect language from merchant country profile, not regex
+      const language = merchant?.country === 'KE' ? 'sw-KE' : 'en-NG';
 
-          audio.onended = () => {
-            if (messageId) {
-              setPlayingMessageId(prev => prev === messageId ? null : prev);
-            }
-          };
-          audio.onerror = () => {
-            if (messageId) {
-              setPlayingMessageId(prev => prev === messageId ? null : prev);
-            }
-          };
+      // Split long messages at sentence boundaries
+      const chunks = splitSentences(cleanText);
 
-          await audio.play();
-        } else {
-          if (messageId) {
-            setPlayingMessageId(null);
+      for (const chunk of chunks) {
+        // Check if we got muted/stopped mid-playback
+        if (isMuted) break;
+
+        try {
+          const res = await api.post('/agent/speak', { text: chunk, language });
+          if (res.data.success && res.data.audioContent) {
+            const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
+            const audio = new Audio(audioUrl);
+            currentAudioRef.current = audio;
+
+            // Wait for this chunk to finish before playing next
+            await new Promise<void>((resolve) => {
+              audio.onended = () => {
+                resolve();
+              };
+              audio.onerror = () => {
+                resolve();
+              };
+              audio.play().catch(() => resolve());
+            });
           }
-        }
-      } catch (err) {
-        console.error('Google Cloud TTS failed:', err);
-        if (messageId) {
-          setPlayingMessageId(null);
+        } catch {
+          // TTS call failed — fail silently, chat still works
         }
       }
-    } catch (e) {
-      console.warn('Speech synthesis failed entirely:', e);
+
+      // All chunks done, clear playing state
+      if (messageId) {
+        setPlayingMessageId(prev => prev === messageId ? null : prev);
+      }
+    } catch {
+      // Fail silently
       if (messageId) {
         setPlayingMessageId(null);
       }
@@ -803,7 +841,16 @@ export default function Chat() {
 
         <button
           onClick={() => {
-            setIsMuted(!isMuted);
+            const newMuted = !isMuted;
+            setIsMuted(newMuted);
+            if (newMuted) {
+              // Stop any currently playing audio immediately
+              if (currentAudioRef.current) {
+                currentAudioRef.current.pause();
+                currentAudioRef.current.currentTime = 0;
+              }
+              setPlayingMessageId(null);
+            }
           }}
           className="px-3 py-1 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-all shadow-[2px_2px_0px_#1A1208] text-xs active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 text-[#1A1208]"
           title={isMuted ? "Unmute Voice" : "Mute Voice"}

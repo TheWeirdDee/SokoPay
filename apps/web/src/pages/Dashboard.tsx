@@ -152,13 +152,36 @@ export default function Dashboard() {
   useEffect(() => {
     let ws: WebSocket | null = null;
     let reconnectTimeout: any = null;
+    let pollInterval: any = null;
+    let reconnectDelay = 1500;
+    let unmounted = false;
+
+    const startFallbackPoll = () => {
+      if (pollInterval) return;
+      pollInterval = setInterval(() => {
+        fetchDashboardSilent();
+      }, 30000);
+    };
+
+    const stopFallbackPoll = () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
 
     const connectWs = () => {
+      if (unmounted) return;
+
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
       const wsUrl = baseUrl.replace(/^http/, 'ws');
-      
-      console.log('[WEBSOCKET] Connecting to:', wsUrl);
+
       ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        reconnectDelay = 1500; // reset on success
+        stopFallbackPoll();    // WebSocket is up — stop polling
+      };
 
       ws.onmessage = (event) => {
         try {
@@ -169,30 +192,45 @@ export default function Dashboard() {
             playRegisterSound();
             fetchDashboardSilent();
           }
-        } catch (err) {
-          console.error('[WEBSOCKET] Parse error:', err);
+        } catch {
+          // silently ignore malformed messages
         }
       };
 
       ws.onclose = () => {
-        console.log('[WEBSOCKET] Connection closed. Reconnecting in 5s...');
-        reconnectTimeout = setTimeout(connectWs, 5000);
+        if (unmounted) return;
+        startFallbackPoll(); // fall back to polling while disconnected
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        reconnectTimeout = setTimeout(connectWs, reconnectDelay);
       };
 
-      ws.onerror = (err) => {
-        console.warn('[WEBSOCKET] Error:', err);
+      ws.onerror = () => {
+        // don't log — onclose will handle retry
         ws?.close();
       };
     };
 
-    connectWs();
+    // Wait for the REST API to be alive before opening WebSocket,
+    // so we don't fire a WS error on cold page load.
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    fetch(`${baseUrl}/health`, { method: 'GET' })
+      .then(() => { if (!unmounted) connectWs(); })
+      .catch(() => {
+        // Server not ready — go straight to poll fallback and retry WS later
+        if (!unmounted) {
+          startFallbackPoll();
+          reconnectTimeout = setTimeout(connectWs, reconnectDelay);
+        }
+      });
 
     return () => {
+      unmounted = true;
       if (ws) {
-        ws.onclose = null;
+        ws.onclose = null; // prevent reconnect on intentional unmount
         ws.close();
       }
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      stopFallbackPoll();
     };
   }, []);
 
@@ -281,6 +319,41 @@ export default function Dashboard() {
     const num = Number(val);
     return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   };
+
+  // Compute peak hour from today's transactions
+  const getPeakHour = () => {
+    if (!recentTransactions || recentTransactions.length === 0) return null;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayTxs = recentTransactions.filter(tx => {
+      const d = new Date(tx.createdAt);
+      return d >= todayStart && tx.direction === 'in';
+    });
+    if (todayTxs.length === 0) return null;
+    const hourCounts: Record<number, number> = {};
+    for (const tx of todayTxs) {
+      const hour = new Date(tx.createdAt).getHours();
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    }
+    const peakHour = parseInt(Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0][0]);
+    const fmt = (h: number) => {
+      const suffix = h >= 12 ? 'pm' : 'am';
+      const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      return `${display}${suffix}`;
+    };
+    return `${fmt(peakHour)}–${fmt(peakHour + 1)}`;
+  };
+
+  const peakHour = getPeakHour();
+  const todayEarningsDisplay = todayEarnings?.local !== '0.00'
+    ? `${currencySymbol}${formatCurrency(todayEarnings?.local || '0')}`
+    : `${currencySymbol}0`;
+
+  const agentCardText = peakHour
+    ? `You made ${todayEarningsDisplay} today. Your busiest hour was ${peakHour}. Tap to ask me anything about your earnings!`
+    : todayEarnings && Number(todayEarnings.local) > 0
+      ? `You made ${todayEarningsDisplay} today. Tap to ask me anything about your earnings!`
+      : `No sales recorded yet today. Tap to ask your AI agent for tips on growing your business!`;
 
   // 7 days: Sunday to Saturday
   // Terracotta bars for filled ones, transparent-white for empty ones
@@ -578,10 +651,11 @@ export default function Dashboard() {
               <div className="space-y-1">
                 <p className="text-xs font-bold text-[#C4622D] uppercase tracking-wider">AI Financial Agent</p>
                 <p className="text-xs text-[#1A1208] font-medium leading-relaxed">
-                  "You made {currencySymbol}{todayEarnings.local !== '0.00' ? formatCurrency(todayEarnings.local) : formatCurrency(Number(balance.local))} today. Your best hour was 12–2pm. Tap to ask me anything about your earnings!"
+                  "{agentCardText}"
                 </p>
               </div>
             </section>
+
 
             {/* Credit Score Progress Card */}
             <div className="w-full bg-[#F2EDE4] border-2 border-[#1A1208] p-5 rounded-xl shadow-card">

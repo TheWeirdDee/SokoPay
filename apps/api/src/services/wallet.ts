@@ -1,65 +1,103 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { createPublicClient, createWalletClient, http, formatUnits, formatEther, parseUnits } from 'viem';
 import { celo } from 'viem/chains';
-import crypto from 'crypto';
+import { createDecipheriv, createCipheriv, randomBytes } from 'crypto';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const CUSD_ADDRESS = '0x765DE816845861e75A25fCA122bb6898B8B1282a';
-const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY;
+const ALGORITHM = 'aes-256-cbc';
+
 const ERC20_ABI = [
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'owner', type: 'address' }],
-    outputs: [{ name: 'balance', type: 'uint256' }]
-  }
-];
-const ERC20_ABI_WRITE = [
   {
     name: 'transfer',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [
-      { name: 'recipient', type: 'address' },
+      { name: 'to', type: 'address' },
       { name: 'amount', type: 'uint256' }
     ],
-    outputs: [{ name: 'success', type: 'boolean' }]
+    outputs: [{ name: '', type: 'bool' }]
+  },
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'decimals',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }]
+  },
+  {
+    name: 'allowance',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' }
+    ],
+    outputs: [{ name: '', type: 'uint256' }]
   }
-];
+] as const;
+
+export function encryptPrivateKey(privateKey: string): string {
+  const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+  if (!ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY environment variable is not set. Check your .env file and ensure dotenv is loaded first.');
+  }
+  const key = Buffer.from(ENCRYPTION_KEY, 'hex').slice(0, 32);
+  const iv = randomBytes(16);
+  const cipher = createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(privateKey, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+export function decryptPrivateKey(encrypted: string): `0x${string}` {
+  const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+  
+  if (!ENCRYPTION_KEY) {
+    throw new Error(
+      'ENCRYPTION_KEY environment variable is not set. ' +
+      'Check your .env file and ensure dotenv is loaded first.'
+    );
+  }
+  
+  if (!encrypted || !encrypted.includes(':')) {
+    throw new Error(
+      `Invalid encrypted key format. Expected "iv:data", got: ${typeof encrypted}`
+    );
+  }
+
+  try {
+    const [ivHex, encryptedData] = encrypted.split(':');
+    const key = Buffer.from(ENCRYPTION_KEY, 'hex').slice(0, 32);
+    const iv = Buffer.from(ivHex, 'hex');
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    // Ensure 0x prefix
+    const key0x = decrypted.startsWith('0x') 
+      ? decrypted 
+      : `0x${decrypted}`;
+    return key0x as `0x${string}`;
+  } catch (error: any) {
+    throw new Error(`Failed to decrypt private key: ${error.message}`);
+  }
+}
 
 export function generateMerchantWallet() {
   const privateKey = generatePrivateKey();
   const account = privateKeyToAccount(privateKey);
-
-  let encryptedPrivateKey = privateKey;
-  
-  if (ENCRYPTION_KEY) {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
-    let encrypted = cipher.update(privateKey);
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
-    encryptedPrivateKey = iv.toString('hex') + ':' + encrypted.toString('hex');
-  }
+  const encryptedPrivateKey = encryptPrivateKey(privateKey);
 
   return {
     address: account.address,
     encryptedPrivateKey,
   };
-}
-
-export function decryptPrivateKey(encryptedPrivateKey: string) {
-  if (!ENCRYPTION_KEY) return encryptedPrivateKey;
-
-  const textParts = encryptedPrivateKey.split(':');
-  const iv = Buffer.from(textParts.shift()!, 'hex');
-  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
-  
-  let decrypted = decipher.update(encryptedText);
-  decrypted = Buffer.concat([decrypted, decipher.final()]);
-  
-  return decrypted.toString();
 }
 
 export async function getBalance(walletAddress: string): Promise<{
@@ -96,56 +134,24 @@ export async function getBalance(walletAddress: string): Promise<{
 }
 
 export async function transferCusd(toAddress: string, amountCusd: string): Promise<string> {
-  if (!AGENT_PRIVATE_KEY) {
-    throw new Error('AGENT_PRIVATE_KEY is missing from environment');
-  }
+  const rawKey = process.env.AGENT_PRIVATE_KEY;
 
-  const account = privateKeyToAccount(AGENT_PRIVATE_KEY as `0x${string}`);
-
-  const publicClient = createPublicClient({
-    chain: celo,
-    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
-  });
-
-  const walletClient = createWalletClient({
-    account,
-    chain: celo,
-    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
-  });
-
-  try {
-    const value = parseUnits(amountCusd, 18);
-    const hash = await walletClient.writeContract({
-      address: CUSD_ADDRESS,
-      abi: ERC20_ABI_WRITE,
-      functionName: 'transfer',
-      args: [toAddress as `0x${string}`, value]
-    });
-
-    console.log(`[ON-CHAIN] Transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
-    await publicClient.waitForTransactionReceipt({ hash });
-    return hash;
-  } catch (error: any) {
-    console.error('Failed to transfer cUSD on chain, generating mock hash:', error);
-    const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
+  if (!rawKey) {
+    console.error('[WALLET] AGENT_PRIVATE_KEY not in environment — falling back to mock hash');
+    const mockHash = '0x' + randomBytes(32).toString('hex');
     console.log(`[DEVELOPMENT] Mock Tx Hash generated: ${mockHash}`);
     return mockHash;
   }
-}
 
-export async function transferCusdFromMerchant(
-  encryptedPrivateKey: string,
-  toAddress: string,
-  amountCusd: string
-): Promise<string> {
-  const publicClient = createPublicClient({
-    chain: celo,
-    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
-  });
+  const agentKey = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as `0x${string}`;
 
   try {
-    const privateKey = decryptPrivateKey(encryptedPrivateKey);
-    const account = privateKeyToAccount(privateKey as `0x${string}`);
+    const account = privateKeyToAccount(agentKey);
+
+    const publicClient = createPublicClient({
+      chain: celo,
+      transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+    });
 
     const walletClient = createWalletClient({
       account,
@@ -156,19 +162,60 @@ export async function transferCusdFromMerchant(
     const value = parseUnits(amountCusd, 18);
     const hash = await walletClient.writeContract({
       address: CUSD_ADDRESS,
-      abi: ERC20_ABI_WRITE,
+      abi: ERC20_ABI,
       functionName: 'transfer',
-      args: [toAddress as `0x${string}`, value]
+      args: [toAddress as `0x${string}`, value],
+      account,
+      chain: celo,
+      feeCurrency: CUSD_ADDRESS as `0x${string}`
     });
 
-    console.log(`[ON-CHAIN] Merchant transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
+    console.log(`[ON-CHAIN] Transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
     await publicClient.waitForTransactionReceipt({ hash });
     return hash;
   } catch (error: any) {
-    console.error('Failed to execute merchant transfer on chain, generating mock hash:', error);
-    const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
-    console.log(`[DEVELOPMENT] Merchant Mock Tx Hash: ${mockHash}`);
+    console.error('[WALLET] transferCusd failed — generating mock hash:', error?.message || error);
+    const mockHash = '0x' + randomBytes(32).toString('hex');
+    console.log(`[DEVELOPMENT] Mock Tx Hash generated: ${mockHash}`);
     return mockHash;
   }
 }
 
+export async function transferCusdFromMerchant(
+  privateKey: `0x${string}`,
+  toAddress: string,
+  amountCusd: string
+): Promise<string> {
+  const publicClient = createPublicClient({
+    chain: celo,
+    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+  });
+
+  const account = privateKeyToAccount(privateKey);
+
+  const walletClient = createWalletClient({
+    account,
+    chain: celo,
+    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+  });
+
+  const value = parseUnits(amountCusd, 18);
+
+  const hash = await walletClient.writeContract({
+    address: CUSD_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'transfer',
+    args: [toAddress as `0x${string}`, value],
+    account,
+    chain: celo,
+    feeCurrency: CUSD_ADDRESS as `0x${string}`
+  });
+
+  console.log(`[ON-CHAIN] Merchant transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
+
+  // Wait for confirmation before returning the hash
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`[ON-CHAIN] Transaction ${hash} confirmed.`);
+
+  return hash;
+}

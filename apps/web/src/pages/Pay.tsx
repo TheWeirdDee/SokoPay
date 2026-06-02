@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { ArrowLeft, Send, Calendar, Clock, Trash2, AlertTriangle, CheckCircle, Search, Building } from 'lucide-react';
+import { ArrowLeft, Send, Calendar, Clock, Trash2, AlertTriangle, CheckCircle, Search, Building, User } from 'lucide-react';
 import { useCache } from '../context/CacheContext';
 import PinModal from '../components/PinModal';
 
@@ -20,7 +20,10 @@ interface ScheduledPayment {
 
 export default function Pay() {
   const navigate = useNavigate();
-  const { balance, updateBalance } = useCache();
+  const { profile, balance, rate, updateBalance } = useCache();
+  const currentRate = rate || (profile?.country === 'KE' ? 150 : 1500);
+  const currencyName = profile?.country === 'KE' ? 'KES' : 'NGN';
+  const currencySymbol = profile?.country === 'KE' ? 'KSh' : '₦';
   const [activeTab, setActiveTab] = useState<'instant' | 'schedule' | 'directory'>('instant');
 
   // Instant Send Form States
@@ -32,6 +35,11 @@ export default function Pay() {
   const [instantError, setInstantError] = useState('');
   const [instantSuccess, setInstantSuccess] = useState('');
   const [instantTxHash, setInstantTxHash] = useState('');
+
+  // Recipient resolution
+  const [lookupStatus, setLookupStatus] = useState<'idle' | 'looking' | 'found' | 'not_found' | 'wallet'>('idle');
+  const [resolvedAddress, setResolvedAddress] = useState('');
+  const [resolvedBusinessName, setResolvedBusinessName] = useState('');
 
   // Schedule Payment Form States
   const [schedRecipient, setSchedRecipient] = useState('');
@@ -67,24 +75,79 @@ export default function Pay() {
     updateBalance();
   }, []);
 
+  useEffect(() => {
+    const input = instantAddress.trim();
+
+    if (!input) {
+      setLookupStatus('idle');
+      setResolvedAddress('');
+      setResolvedBusinessName('');
+      return;
+    }
+
+    // Wallet address: 0x + 40 hex chars
+    if (/^0x[0-9a-fA-F]{40}$/.test(input)) {
+      setLookupStatus('wallet');
+      setResolvedAddress(input);
+      setResolvedBusinessName('');
+      return;
+    }
+
+    // Phone-like: optional + then 7–15 digits/spaces/dashes
+    if (/^[+]?[\d\s\-]{7,15}$/.test(input)) {
+      setLookupStatus('looking');
+      const timer = setTimeout(async () => {
+        try {
+          const encoded = encodeURIComponent(input.replace(/[\s\-]/g, ''));
+          const res = await api.get(`/merchant/by-phone/${encoded}`);
+          if (res.data.success) {
+            setResolvedAddress(res.data.walletAddress);
+            setResolvedBusinessName(res.data.businessName);
+            setLookupStatus('found');
+          } else {
+            setResolvedAddress('');
+            setResolvedBusinessName('');
+            setLookupStatus('not_found');
+          }
+        } catch {
+          setResolvedAddress('');
+          setResolvedBusinessName('');
+          setLookupStatus('not_found');
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+
+    setLookupStatus('idle');
+    setResolvedAddress('');
+    setResolvedBusinessName('');
+  }, [instantAddress]);
+
   const handleInstantSendSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setInstantError('');
     setInstantSuccess('');
     setInstantTxHash('');
 
-    if (!instantAddress.startsWith('0x') || instantAddress.length !== 42) {
-      setInstantError('Please enter a valid Celo wallet address starting with 0x.');
+    if (!resolvedAddress || !/^0x[0-9a-fA-F]{40}$/.test(resolvedAddress)) {
+      if (lookupStatus === 'not_found') {
+        setInstantError('No SokoPay merchant found with that phone number. Enter a valid wallet address (0x...) instead.');
+      } else if (lookupStatus === 'looking') {
+        setInstantError('Still looking up recipient — please wait a moment.');
+      } else {
+        setInstantError('Enter a phone number to find a SokoPay merchant, or a wallet address starting with 0x.');
+      }
       return;
     }
 
-    const amount = parseFloat(instantAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const localAmt = parseFloat(instantAmount);
+    if (isNaN(localAmt) || localAmt <= 0) {
       setInstantError('Please enter a valid transfer amount.');
       return;
     }
 
-    if (!balance || amount > parseFloat(balance.cusd)) {
+    const amountCusd = localAmt / currentRate;
+    if (!balance || amountCusd > parseFloat(balance.cusd)) {
       setInstantError('Insufficient balance to complete this transfer.');
       return;
     }
@@ -94,24 +157,41 @@ export default function Pay() {
   };
 
   const executeInstantSend = async (verifiedPin: string) => {
-    const amount = parseFloat(instantAmount);
+    const localAmt = parseFloat(instantAmount);
+    const amountCusd = localAmt / currentRate;
     setInstantLoading(true);
     try {
       const response = await api.post('/payments/send', {
-        recipientAddress: instantAddress,
-        amountCusd: amount,
+        recipientAddress: resolvedAddress,
+        amountCusd: amountCusd,
         notes: instantNotes,
         paymentPassword: verifiedPin
       });
 
-      setInstantSuccess(`Successfully sent ${amount} cUSD to ${instantAddress.substring(0, 6)}...${instantAddress.substring(38)}!`);
-      if (response.data.txHash) {
-        setInstantTxHash(response.data.txHash);
+      const data = response.data;
+      const txHash = data?.txHash;
+
+      if (
+        data?.success === true &&
+        txHash &&
+        typeof txHash === 'string' &&
+        txHash.startsWith('0x') &&
+        txHash.length === 66
+      ) {
+        const displayRecipient = resolvedBusinessName || `${resolvedAddress.substring(0, 6)}...${resolvedAddress.substring(38)}`;
+        setInstantSuccess(`Successfully sent ${currencySymbol}${localAmt.toFixed(2)} (≈ ${amountCusd.toFixed(2)} cUSD) to ${displayRecipient}!`);
+        setInstantTxHash(txHash);
+        setInstantAddress('');
+        setInstantAmount('');
+        setInstantNotes('');
+        setResolvedAddress('');
+        setResolvedBusinessName('');
+        setLookupStatus('idle');
+        updateBalance();
+      } else {
+        const errorMsg = data?.error || 'Invalid transaction hash received from server. Payment might have failed.';
+        setInstantError(errorMsg);
       }
-      setInstantAddress('');
-      setInstantAmount('');
-      setInstantNotes('');
-      updateBalance();
     } catch (err: any) {
       console.error('Instant payment error:', err);
       setInstantError(err.response?.data?.error || 'Failed to send payment.');
@@ -135,11 +215,13 @@ export default function Pay() {
       return;
     }
 
-    const amount = parseFloat(schedAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const localAmt = parseFloat(schedAmount);
+    if (isNaN(localAmt) || localAmt <= 0) {
       setSchedError('Please enter a valid amount.');
       return;
     }
+
+    const amountCusd = localAmt / currentRate;
 
     if (!schedDate) {
       setSchedError('Please select a scheduled execution date and time.');
@@ -151,13 +233,13 @@ export default function Pay() {
       await api.post('/payments/schedule', {
         recipient: schedRecipient,
         recipientAddress: schedAddress || null,
-        amountCusd: amount,
+        amountCusd: amountCusd,
         description: schedDescription || null,
         scheduledAt: new Date(schedDate).toISOString(),
         recurrence: schedRecurrence === 'none' ? null : schedRecurrence
       });
 
-      setSchedSuccess(`Successfully scheduled payment of ${amount} cUSD to ${schedRecipient}!`);
+      setSchedSuccess(`Successfully scheduled payment of ${currencySymbol}${localAmt.toFixed(2)} (≈ ${amountCusd.toFixed(2)} cUSD) to ${schedRecipient}!`);
       setSchedRecipient('');
       setSchedAddress('');
       setSchedAmount('');
@@ -291,25 +373,58 @@ export default function Pay() {
               </div>
             )}
 
-            <Input
-              label="Recipient Celo Wallet Address"
-              placeholder="0x..."
-              value={instantAddress}
-              onChange={(e) => setInstantAddress(e.target.value)}
-              required
-            />
-
-            <div className="relative">
+            <div className="space-y-1">
               <Input
-                label="Amount (cUSD)"
-                type="number"
-                step="any"
-                placeholder="0.00"
-                value={instantAmount}
-                onChange={(e) => setInstantAmount(e.target.value)}
+                label="Recipient (Phone Number or Wallet Address)"
+                placeholder="e.g. 08012345678 or 0x..."
+                value={instantAddress}
+                onChange={(e) => setInstantAddress(e.target.value)}
                 required
               />
-              <span className="absolute right-3 bottom-3 text-xs font-bold text-text-muted">cUSD</span>
+              {lookupStatus === 'looking' && (
+                <p className="text-xs text-text-muted font-semibold flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 bg-text-muted rounded-full animate-pulse" />
+                  Looking up merchant...
+                </p>
+              )}
+              {lookupStatus === 'found' && (
+                <p className="text-xs text-success font-bold flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                  SokoPay merchant found: {resolvedBusinessName}
+                </p>
+              )}
+              {lookupStatus === 'not_found' && (
+                <p className="text-xs text-error font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  No SokoPay merchant with this number
+                </p>
+              )}
+              {lookupStatus === 'wallet' && (
+                <p className="text-xs text-text-muted font-semibold flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 shrink-0" />
+                  External wallet address
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <div className="relative">
+                <Input
+                  label={`Amount (${currencyName})`}
+                  type="number"
+                  step="any"
+                  placeholder="0.00"
+                  value={instantAmount}
+                  onChange={(e) => setInstantAmount(e.target.value)}
+                  required
+                />
+                <span className="absolute right-3 bottom-3 text-xs font-bold text-text-muted">{currencyName}</span>
+              </div>
+              {instantAmount && !isNaN(parseFloat(instantAmount)) && (
+                <p className="text-xs text-text-muted font-semibold mt-1">
+                  ≈ {(parseFloat(instantAmount) / currentRate).toFixed(2)} cUSD (Rate: 1 cUSD = {currentRate} {currencyName})
+                </p>
+              )}
             </div>
 
             <Input
@@ -356,17 +471,24 @@ export default function Pay() {
               onChange={(e) => setSchedAddress(e.target.value)}
             />
 
-            <div className="relative">
-              <Input
-                label="Amount (cUSD)"
-                type="number"
-                step="any"
-                placeholder="0.00"
-                value={schedAmount}
-                onChange={(e) => setSchedAmount(e.target.value)}
-                required
-              />
-              <span className="absolute right-3 bottom-3 text-xs font-bold text-text-muted">cUSD</span>
+            <div className="space-y-1">
+              <div className="relative">
+                <Input
+                  label={`Amount (${currencyName})`}
+                  type="number"
+                  step="any"
+                  placeholder="0.00"
+                  value={schedAmount}
+                  onChange={(e) => setSchedAmount(e.target.value)}
+                  required
+                />
+                <span className="absolute right-3 bottom-3 text-xs font-bold text-text-muted">{currencyName}</span>
+              </div>
+              {schedAmount && !isNaN(parseFloat(schedAmount)) && (
+                <p className="text-xs text-text-muted font-semibold mt-1">
+                  ≈ {(parseFloat(schedAmount) / currentRate).toFixed(2)} cUSD (Rate: 1 cUSD = {currentRate} {currencyName})
+                </p>
+              )}
             </div>
 
             <Input
@@ -515,6 +637,9 @@ export default function Pay() {
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <div className="font-display font-black text-accent">{payment.amountCusd.toFixed(2)} cUSD</div>
+                    <div className="text-[10px] font-mono text-text-muted font-semibold">
+                      ≈ {currencySymbol}{(payment.amountCusd * currentRate).toFixed(2)}
+                    </div>
                   </div>
                   <button
                     onClick={() => handleCancelScheduled(payment.id)}
@@ -534,7 +659,7 @@ export default function Pay() {
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
         onSuccess={executeInstantSend}
-        description={`Confirm payment of ${instantAmount} cUSD to ${instantAddress.substring(0, 6)}...${instantAddress.substring(38)}`}
+        description={`Confirm payment of ${currencySymbol}${instantAmount || '0'} (≈ ${(parseFloat(instantAmount || '0') / currentRate).toFixed(2)} cUSD) to ${resolvedBusinessName || (resolvedAddress ? `${resolvedAddress.substring(0, 6)}...${resolvedAddress.substring(38)}` : '—')}`}
       />
     </div>
   );

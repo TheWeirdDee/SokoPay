@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AfricaGlobe } from '../components/AfricaGlobe';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import {
   Store,
   Coins,
@@ -122,10 +124,7 @@ export default function Landing() {
     const handleMouseMove = (e: MouseEvent) => {
       mouseX = e.clientX;
       mouseY = e.clientY;
-      const gsap = (window as any).gsap;
-      if (gsap && cursor) {
-        gsap.to(cursor, { x: mouseX, y: mouseY, duration: 0.1 });
-      }
+      gsap.to(cursor, { x: mouseX, y: mouseY, duration: 0.1 });
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -168,13 +167,9 @@ export default function Landing() {
     window.addEventListener('scroll', handleScroll);
 
     // Initialize GSAP Animations
-    const gsap = (window as any).gsap;
-    const ScrollTrigger = (window as any).ScrollTrigger;
+    gsap.registerPlugin(ScrollTrigger);
 
-    if (gsap && ScrollTrigger) {
-      gsap.registerPlugin(ScrollTrigger);
-
-      // Hero Timeline
+    // Hero Timeline
       const tl = gsap.timeline({ delay: 0.2 });
 
       tl.to('.hero-tag', { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out' })
@@ -267,7 +262,6 @@ export default function Landing() {
       setTimeout(() => {
         ScrollTrigger.refresh();
       }, 1000);
-    }
 
     // Cleanup
     return () => {
@@ -277,9 +271,7 @@ export default function Landing() {
       document.body.classList.remove('landing-page-active');
       if (document.body.contains(cursor)) document.body.removeChild(cursor);
       if (document.body.contains(ring)) document.body.removeChild(ring);
-      if (ScrollTrigger) {
-        ScrollTrigger.getAll().forEach((t: any) => t.kill());
-      }
+      ScrollTrigger.getAll().forEach((t: any) => t.kill());
     };
   }, []);
 
@@ -1681,7 +1673,7 @@ export default function Landing() {
       {/* HERO */}
       <section className="hero" id="hero">
         {/* Full-width Hardware Accelerated Crisp Image Tag */}
-        <img src="/Hero_bg.png?v=4" alt="SokoPay Merchants" className="hero-bg-img" />
+        <img src="/Herobg.png?v=4" alt="SokoPay Merchants" className="hero-bg-img" />
 
         <div className="hero-overlay"></div>
 
@@ -1956,11 +1948,11 @@ export default function Landing() {
               SokoPay agent wallets and verified rates allow seamless cross-border settlement for informal merchants. Accept local payment methods and settle instantly.
             </p>
           </div>
-          
+
           <div className="countries-map">
             <AfricaGlobe />
           </div>
-          
+
           <div className="countries-right slide-right">
             <div className="countries-list-container">
               <div className="country-item active ng-item">
@@ -1996,7 +1988,7 @@ export default function Landing() {
                 <span className="soon-tag">Soon</span>
               </div>
             </div>
-            
+
             <div className="scale-axis">
               <div className="scale-axis-line"></div>
               <div className="scale-tick active ng-tick"></div>

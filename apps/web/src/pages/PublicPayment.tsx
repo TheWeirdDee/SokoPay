@@ -57,8 +57,8 @@ export default function PublicPayment() {
           setDescription(response.data.invoice.description || '');
         }
       } catch (err: any) {
-        console.error(err);
-        setError(err.response?.data?.error || 'Failed to load payment link.');
+        console.error('[PublicPayment] Failed to load payment link:', err);
+        setError('This payment link could not be loaded. It may be invalid or expired.');
       } finally {
         setIsLoading(false);
       }
@@ -102,8 +102,16 @@ export default function PublicPayment() {
         }
       }
     } catch (err: any) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Payment initiation failed.');
+      console.error('[PublicPayment] Payment failed:', err);
+      // Never expose raw backend errors to customers
+      const status = err?.response?.status;
+      if (status === 404) {
+        setError('Payment link not found. Please check the link and try again.');
+      } else if (status === 400) {
+        setError('Invalid payment details. Please check the amount and try again.');
+      } else {
+        setError('Payment could not be processed. Please try again in a moment.');
+      }
     } finally {
       setIsPaying(false);
     }
@@ -125,11 +133,16 @@ export default function PublicPayment() {
     return (
       <div className="min-h-screen bg-[#FAF7F2] flex items-center justify-center font-body p-6">
         <div className="bg-[#F2EDE4] border-2 border-[#B5271E] p-8 rounded-xl shadow-card w-full max-w-md text-center space-y-4">
-          <div className="text-4xl text-[#B5271E] flex justify-center">
+          <div className="text-[#B5271E] flex justify-center">
             <AlertTriangle className="w-10 h-10" />
           </div>
-          <h2 className="font-display font-bold text-xl text-[#1A1208]">Payment Error</h2>
-          <p className="text-sm text-[#7A6B55]">{error}</p>
+          <h2 className="font-display font-bold text-xl text-[#1A1208]">Payment Link Unavailable</h2>
+          <p className="text-sm text-[#7A6B55]">
+            This payment link could not be loaded. It may be invalid or expired.
+          </p>
+          <p className="text-xs text-[#7A6B55]/70">
+            Contact the merchant who sent you this link for assistance.
+          </p>
         </div>
       </div>
     );
@@ -161,11 +174,19 @@ export default function PublicPayment() {
               </span>
             </div>
             {successTx?.txHash && (
-              <div className="flex flex-col text-xs text-[#7A6B55]">
+              <div className="flex flex-col text-xs text-[#7A6B55] gap-1.5">
                 <span>Celo Tx Hash:</span>
-                <span className="font-mono text-[#C4622D] break-all select-all mt-1">
+                <span className="font-mono text-[#C4622D] break-all select-all leading-relaxed">
                   {successTx.txHash}
                 </span>
+                <a
+                  href={`https://celoscan.io/tx/${successTx.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-1 text-[#5C6B3A] font-bold hover:underline hover:text-[#3E4E28] transition-colors w-fit"
+                >
+                  View on Celoscan →
+                </a>
               </div>
             )}
           </div>
@@ -195,8 +216,9 @@ export default function PublicPayment() {
         {/* Content Form */}
         <form onSubmit={handlePay} className="p-6 space-y-6">
           {error && (
-            <div className="bg-red-50 text-[#B5271E] border border-red-200 text-xs p-3 rounded">
-              {error}
+            <div className="bg-red-50 text-[#B5271E] border border-red-200 text-xs p-3 rounded flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
 

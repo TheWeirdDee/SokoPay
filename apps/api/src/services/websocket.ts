@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
-import { prisma } from '../config/db';
+import { supabase } from '../config/supabase';
 
 let wss: WebSocketServer | null = null;
 
@@ -10,7 +10,6 @@ export function initWebSocketServer(server: Server) {
   wss.on('connection', async (ws: WebSocket) => {
     console.log('[WEBSOCKET] Client connected');
 
-    // Send initial stats immediately on connection
     const stats = await getTransactionStats();
     ws.send(JSON.stringify({ type: 'STATS_UPDATE', stats }));
 
@@ -38,10 +37,8 @@ export async function broadcastStatsUpdate() {
 export async function broadcastNewTransaction(tx: any) {
   if (!wss) return;
 
-  // Broadcast the new transaction details
   const txMessage = JSON.stringify({ type: 'NEW_TRANSACTION', transaction: tx });
   
-  // Get updated stats and broadcast them
   const stats = await getTransactionStats();
   const statsMessage = JSON.stringify({ type: 'STATS_UPDATE', stats });
 
@@ -55,29 +52,30 @@ export async function broadcastNewTransaction(tx: any) {
 
 async function getTransactionStats() {
   try {
-    // Count all transactions (inflow, outflow, cash, withdrawals)
-    const count = await prisma.transaction.count();
+    const { count, error: countError } = await supabase.from('Transaction').select('*', { count: 'exact', head: true });
+    
+    if (countError) throw countError;
 
-    // Sum all incoming transaction amounts (for total volume received in local currency equivalent)
-    const incomingTxs = await prisma.transaction.findMany({
-      where: {
-        direction: 'in'
-      }
-    });
+    const { data: incomingTxs, error: txError } = await supabase.from('Transaction')
+      .select('amountLocal, currencyLocal')
+      .eq('direction', 'in');
+
+    if (txError) throw txError;
 
     let totalVolumeLocal = 0;
-    for (const tx of incomingTxs) {
-      const amount = tx.amountLocal || 0;
-      if (tx.currencyLocal === 'KES') {
-        // Convert KES volume to NGN equivalent (approx. 10x for display metrics)
-        totalVolumeLocal += amount * 10.5;
-      } else {
-        totalVolumeLocal += amount;
+    if (incomingTxs) {
+      for (const tx of incomingTxs) {
+        const amount = tx.amountLocal || 0;
+        if (tx.currencyLocal === 'KES') {
+          totalVolumeLocal += amount * 10.5;
+        } else {
+          totalVolumeLocal += amount;
+        }
       }
     }
 
     return {
-      count,
+      count: count || 0,
       totalVolumeLocal: Math.round(totalVolumeLocal)
     };
   } catch (error) {

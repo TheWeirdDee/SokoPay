@@ -1,55 +1,45 @@
 import { Router, Response } from 'express';
-import { prisma } from '../config/db';
+import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import crypto from 'crypto';
-import { transferCusdFromMerchant } from '../services/wallet';
+import bcrypt from 'bcryptjs';
+import { transferCusdFromMerchant, decryptPrivateKey, getBalance } from '../services/wallet';
 
 const router = Router();
 
 router.post('/request', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
-    if (!merchantId) {
-      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
-    }
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
     const { customerName, amountLocal, description, dueDate } = req.body;
     if (!amountLocal || isNaN(parseFloat(amountLocal))) {
       return res.status(400).json({ error: 'amountLocal must be a valid number' });
     }
 
-    const merchant = await prisma.merchant.findUnique({
-      where: { id: merchantId }
-    });
-
-    if (!merchant) {
-      return res.status(404).json({ error: 'Merchant not found' });
-    }
+    const { data: merchant, error: merchantError } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
+    if (merchantError || !merchant) return res.status(404).json({ error: 'Merchant not found' });
 
     const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
-    const linkToken = crypto.randomBytes(8).toString('hex'); // 16-character hex token
+    const linkToken = crypto.randomBytes(8).toString('hex');
 
-    const paymentRequest = await prisma.paymentRequest.create({
-      data: {
-        merchantId,
-        customerName: customerName || null,
-        amountLocal: parseFloat(amountLocal),
-        currencyLocal: currency,
-        description: description || null,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        linkToken,
-        status: 'pending'
-      }
-    });
+    const { data: paymentRequest, error: insertError } = await supabase.from('PaymentRequest').insert({
+      merchantId,
+      customerName: customerName || null,
+      amountLocal: parseFloat(amountLocal),
+      currencyLocal: currency,
+      description: description || null,
+      dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+      linkToken,
+      status: 'pending'
+    }).select().single();
+
+    if (insertError) throw insertError;
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const link = `${frontendUrl}/p/${linkToken}`;
 
-    res.json({
-      success: true,
-      paymentRequest,
-      link
-    });
+    res.json({ success: true, paymentRequest, link });
   } catch (error: any) {
     console.error('Error creating payment request:', error);
     res.status(500).json({ error: error.message || 'Failed to create payment request' });
@@ -59,32 +49,26 @@ router.post('/request', requireAuth, async (req: AuthRequest, res: Response) => 
 router.get('/requests', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
-    if (!merchantId) {
-      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
-    }
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
-    const requests = await prisma.paymentRequest.findMany({
-      where: { merchantId },
-      orderBy: { createdAt: 'desc' }
-    });
+    const { data: requests, error } = await supabase.from('PaymentRequest')
+      .select('*')
+      .eq('merchantId', merchantId)
+      .order('createdAt', { ascending: false });
 
-    res.json({
-      success: true,
-      paymentRequests: requests
-    });
+    if (error) throw error;
+
+    res.json({ success: true, paymentRequests: requests });
   } catch (error: any) {
     console.error('Error fetching payment requests:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch payment requests' });
   }
 });
 
-// POST /payments/send - Send instant payment to another address/merchant
 router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
-    if (!merchantId) {
-      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
-    }
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
     const { recipientAddress, amountCusd, notes, counterpart, paymentPassword } = req.body;
 
@@ -96,99 +80,95 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Valid amountCusd is required' });
     }
 
-    // Get merchant wallet to decrypt
-    const merchant = await prisma.merchant.findUnique({
-      where: { id: merchantId }
-    });
+    const { data: merchant, error: merchantError } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
+    if (merchantError || !merchant) return res.status(404).json({ error: 'Merchant not found' });
 
-    if (!merchant) {
-      return res.status(404).json({ error: 'Merchant not found' });
+    if (merchant.paymentPinHash || merchant.paymentPasswordHash) {
+      const pin = paymentPassword || req.body.pin || req.body.paymentPin;
+      if (!pin) return res.status(400).json({ error: 'Payment PIN is required' });
+      let pinMatch = false;
+      if (merchant.paymentPinHash && merchant.paymentPinHash.startsWith('$2')) {
+        pinMatch = await bcrypt.compare(pin, merchant.paymentPinHash);
+      } else if (merchant.paymentPasswordHash) {
+        const hashed = crypto.createHash('sha256').update(pin).digest('hex');
+        pinMatch = merchant.paymentPasswordHash === hashed;
+      }
+      if (!pinMatch) return res.status(400).json({ error: 'Incorrect payment PIN' });
     }
 
-    // Verify payment password if configured
-    if (merchant.paymentPasswordHash) {
-      if (!paymentPassword) {
-        return res.status(400).json({ error: 'Payment password is required' });
-      }
-      const hashed = crypto.createHash('sha256').update(paymentPassword).digest('hex');
-      if (merchant.paymentPasswordHash !== hashed) {
-        return res.status(400).json({ error: 'Incorrect payment password' });
-      }
+    const { cusd: balance } = await getBalance(merchant.walletAddress);
+    const balanceNum = parseFloat(balance);
+    const amountNum = parseFloat(amountCusd.toString());
+
+    console.log('Sending from wallet:', merchant.walletAddress);
+    console.log('Balance:', balance);
+    console.log('Amount to send:', amountCusd);
+    console.log('Balance check:', { balanceNum, amountNum });
+
+    if (balanceNum < amountNum) {
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient cUSD balance. Have: ${balanceNum}, Need: ${amountNum}`
+      });
     }
 
-    // Execute transfer
     console.log(`[PAYMENTS SEND] Executing instant transfer of ${amountCusd} cUSD to ${recipientAddress}`);
-    const txHash = await transferCusdFromMerchant(
-      merchant.encryptedPrivateKey,
-      recipientAddress,
-      parseFloat(amountCusd).toFixed(6)
-    );
+    const decryptedKey = decryptPrivateKey(merchant.encryptedPrivateKey);
+    const txHash = await transferCusdFromMerchant(decryptedKey, recipientAddress, parseFloat(amountCusd).toFixed(6));
 
-    // Save outgoing transaction in history
-    const transaction = await prisma.transaction.create({
-      data: {
-        merchantId,
-        type: 'outgoing',
-        direction: 'out',
-        amountCusd: parseFloat(amountCusd),
-        txHash,
-        method: 'x402',
-        status: 'confirmed',
-        counterpart: counterpart || recipientAddress,
-        notes: notes || 'Direct transfer payout'
-      }
-    });
+    const { data: transaction, error: txError } = await supabase.from('Transaction').insert({
+      merchantId,
+      type: 'outgoing',
+      direction: 'out',
+      amountCusd: parseFloat(amountCusd),
+      txHash,
+      method: 'x402',
+      status: 'confirmed',
+      counterpart: counterpart || recipientAddress,
+      notes: notes || 'Direct transfer payout'
+    }).select().single();
 
-    res.json({
-      success: true,
-      transaction,
-      txHash
-    });
+    if (txError) throw txError;
+
+    res.json({ success: true, transaction, txHash });
 
   } catch (error: any) {
-    console.error('Error sending payment:', error);
-    res.status(500).json({ error: error.message || 'Failed to send payment' });
+    console.error('[PAYMENTS SEND] Transfer failed:', error?.shortMessage || error?.message || error);
+    const msg = error?.shortMessage || error?.message || 'Failed to send payment';
+    if (msg.includes('transfer amount exceeds balance') || msg.includes('ERC20InsufficientBalance')) {
+      return res.status(400).json({ error: 'Insufficient cUSD balance to complete this transfer.' });
+    }
+    if (msg.includes('insufficient funds') || msg.includes('InsufficientFundsError')) {
+      return res.status(400).json({ error: 'Insufficient CELO to pay gas fees. Your wallet needs a small amount of CELO to cover network fees.' });
+    }
+    res.status(500).json({ success: false, error: 'Transfer failed: ' + (error?.shortMessage || msg) });
   }
 });
 
-// POST /payments/schedule - Schedule a payment
 router.post('/schedule', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
-    if (!merchantId) {
-      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
-    }
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
     const { recipient, recipientAddress, amountCusd, description, scheduledAt, recurrence } = req.body;
 
-    if (!recipient) {
-      return res.status(400).json({ error: 'Recipient name/phone is required' });
-    }
+    if (!recipient) return res.status(400).json({ error: 'Recipient name/phone is required' });
+    if (!amountCusd || isNaN(parseFloat(amountCusd)) || parseFloat(amountCusd) <= 0) return res.status(400).json({ error: 'Valid amountCusd is required' });
+    if (!scheduledAt) return res.status(400).json({ error: 'Scheduled execution date is required' });
 
-    if (!amountCusd || isNaN(parseFloat(amountCusd)) || parseFloat(amountCusd) <= 0) {
-      return res.status(400).json({ error: 'Valid amountCusd is required' });
-    }
+    const { data: scheduledPayment, error } = await supabase.from('ScheduledPayment').insert({
+      merchantId,
+      recipient,
+      recipientAddress: recipientAddress || null,
+      amountCusd: parseFloat(amountCusd),
+      description: description || null,
+      scheduledAt: new Date(scheduledAt).toISOString(),
+      recurrence: recurrence || null
+    }).select().single();
 
-    if (!scheduledAt) {
-      return res.status(400).json({ error: 'Scheduled execution date is required' });
-    }
+    if (error) throw error;
 
-    const scheduledPayment = await prisma.scheduledPayment.create({
-      data: {
-        merchantId,
-        recipient,
-        recipientAddress: recipientAddress || null,
-        amountCusd: parseFloat(amountCusd),
-        description: description || null,
-        scheduledAt: new Date(scheduledAt),
-        recurrence: recurrence || null
-      }
-    });
-
-    res.json({
-      success: true,
-      scheduledPayment
-    });
+    res.json({ success: true, scheduledPayment });
 
   } catch (error: any) {
     console.error('Error scheduling payment:', error);
@@ -196,50 +176,36 @@ router.post('/schedule', requireAuth, async (req: AuthRequest, res: Response) =>
   }
 });
 
-// GET /payments/scheduled - List scheduled payments
 router.get('/scheduled', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
-    if (!merchantId) {
-      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
-    }
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
-    const scheduledPayments = await prisma.scheduledPayment.findMany({
-      where: {
-        merchantId,
-        executed: false
-      },
-      orderBy: {
-        scheduledAt: 'asc'
-      }
-    });
+    const { data: payments, error } = await supabase.from('ScheduledPayment')
+      .select('*')
+      .eq('merchantId', merchantId)
+      .eq('executed', false)
+      .order('scheduledAt', { ascending: true });
 
-    res.json({
-      success: true,
-      scheduledPayments
-    });
+    if (error) throw error;
+
+    res.json({ success: true, payments, scheduledPayments: payments });
 
   } catch (error: any) {
-    console.error('Error fetching scheduled payments:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch scheduled payments' });
+    console.error('GET /payments/scheduled error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to fetch scheduled payments', payments: [], scheduledPayments: [] });
   }
 });
 
-// DELETE /payments/scheduled/:id - Cancel scheduled payment
 router.delete('/scheduled/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
-    if (!merchantId) {
-      return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
-    }
-
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
     const { id } = req.params;
 
-    const payment = await prisma.scheduledPayment.findUnique({
-      where: { id }
-    });
+    const { data: payment, error } = await supabase.from('ScheduledPayment').select('*').eq('id', id).single();
 
-    if (!payment || payment.merchantId !== merchantId) {
+    if (error || !payment || payment.merchantId !== merchantId) {
       return res.status(404).json({ error: 'Scheduled payment not found' });
     }
 
@@ -247,14 +213,10 @@ router.delete('/scheduled/:id', requireAuth, async (req: AuthRequest, res: Respo
       return res.status(400).json({ error: 'Cannot cancel already executed payment' });
     }
 
-    await prisma.scheduledPayment.delete({
-      where: { id }
-    });
+    const { error: deleteError } = await supabase.from('ScheduledPayment').delete().eq('id', id);
+    if (deleteError) throw deleteError;
 
-    res.json({
-      success: true,
-      message: 'Scheduled payment cancelled'
-    });
+    res.json({ success: true, message: 'Scheduled payment cancelled' });
 
   } catch (error: any) {
     console.error('Error cancelling scheduled payment:', error);

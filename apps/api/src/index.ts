@@ -1,12 +1,21 @@
+import 'dotenv/config';
+import path from 'path';
+import dotenv from 'dotenv';
+import { privateKeyToAccount } from 'viem/accounts';
+
+const operatorAccount = privateKeyToAccount(
+  process.env.AGENT_PRIVATE_KEY as `0x${string}`
+);
+console.log('=== OPERATOR WALLET ADDRESS ===');
+console.log(operatorAccount.address);
+console.log('===============================');
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { initWebSocketServer } from './services/websocket';
 
-import path from 'path';
-dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
 const app = express();
 const port = process.env.PORT || 3000;

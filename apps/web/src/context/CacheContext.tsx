@@ -64,16 +64,21 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 
     // If cached and not forced, return cached instantly
     if (profile && !force) {
-      // Trigger a background silent refresh to get updated stats
+      // Trigger background silent refresh for profile and balance
       api.get('/merchant/me').then(res => {
         if (res.data.success) {
           setProfile(res.data.merchant);
+        }
+      }).catch(err => console.error('Background profile refresh failed:', err));
+
+      api.get('/merchant/balance').then(res => {
+        if (res.data.success) {
           setBalance(res.data.balance);
           setRecentTransactions(res.data.recentTransactions || []);
           setTodayEarnings(res.data.todayEarnings);
           setRate(res.data.rate);
         }
-      }).catch(err => console.error('Background profile refresh failed:', err));
+      }).catch(err => console.error('Background balance refresh failed:', err));
 
       return { profile, balance, recentTransactions, todayEarnings, rate };
     }
@@ -87,12 +92,40 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
       const res = await api.get('/merchant/me');
       if (res.data.success) {
         setProfile(res.data.merchant);
-        setBalance(res.data.balance);
-        setRecentTransactions(res.data.recentTransactions || []);
-        setTodayEarnings(res.data.todayEarnings);
-        setRate(res.data.rate);
+        
+        let freshBalance = null;
+        let freshRecentTxs = [];
+        let freshTodayEarnings = null;
+        let freshRate = null;
+
+        // Fetch balance separately
+        try {
+          const balRes = await api.get('/merchant/balance');
+          if (balRes.data.success) {
+            setBalance(balRes.data.balance);
+            setRecentTransactions(balRes.data.recentTransactions || []);
+            setTodayEarnings(balRes.data.todayEarnings);
+            setRate(balRes.data.rate);
+
+            freshBalance = balRes.data.balance;
+            freshRecentTxs = balRes.data.recentTransactions || [];
+            freshTodayEarnings = balRes.data.todayEarnings;
+            freshRate = balRes.data.rate;
+          }
+        } catch (bErr) {
+          console.error('Failed to fetch balance in fetchProfile:', bErr);
+        }
+
         hasFetchedProfile.current = true;
-        return res.data;
+        
+        return {
+          success: true,
+          merchant: res.data.merchant,
+          balance: freshBalance,
+          recentTransactions: freshRecentTxs,
+          todayEarnings: freshTodayEarnings,
+          rate: freshRate
+        };
       }
     } catch (err) {
       console.error('Failed to fetch profile in cache context:', err);
@@ -107,7 +140,7 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
     if (!token) return;
     try {
-      const res = await api.get('/merchant/me');
+      const res = await api.get('/merchant/balance');
       if (res.data.success) {
         setBalance(res.data.balance);
         setRecentTransactions(res.data.recentTransactions || []);
