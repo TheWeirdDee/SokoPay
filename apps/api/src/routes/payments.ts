@@ -4,6 +4,8 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { transferCusdFromMerchant, decryptPrivateKey, getBalance } from '../services/wallet';
+import { privateKeyToAccount } from 'viem/accounts';
+import { getCachedRate } from '../services/muon';
 
 const router = Router();
 
@@ -96,14 +98,23 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
       if (!pinMatch) return res.status(400).json({ error: 'Incorrect payment PIN' });
     }
 
-    const { cusd: balance } = await getBalance(merchant.walletAddress);
+    // Derive the ACTUAL signing address from the private key so the balance
+    // check uses the same account that will sign the transaction.
+    // If walletAddress in DB ever drifted from the stored key, this catches it.
+    const decryptedKey = decryptPrivateKey(merchant.encryptedPrivateKey);
+    const signerAddress = privateKeyToAccount(decryptedKey).address;
+
+    if (signerAddress.toLowerCase() !== merchant.walletAddress?.toLowerCase()) {
+      console.error('[PAYMENTS SEND] ADDRESS MISMATCH — DB:', merchant.walletAddress, '/ Key:', signerAddress);
+    }
+
+    const { cusd: balance } = await getBalance(signerAddress);
     const balanceNum = parseFloat(balance);
     const amountNum = parseFloat(amountCusd.toString());
 
-    console.log('Sending from wallet:', merchant.walletAddress);
-    console.log('Balance:', balance);
-    console.log('Amount to send:', amountCusd);
-    console.log('Balance check:', { balanceNum, amountNum });
+    console.log('[PAYMENTS SEND] Signer address:', signerAddress);
+    console.log('[PAYMENTS SEND] DB walletAddress:', merchant.walletAddress);
+    console.log('[PAYMENTS SEND] Balance:', balance, '| Amount:', amountCusd);
 
     if (balanceNum < amountNum) {
       return res.status(400).json({
@@ -112,15 +123,23 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
       });
     }
 
+    const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
+    const rateData = await getCachedRate(currency);
+    const amountCusdNum = parseFloat(amountCusd);
+    const amountLocal = amountCusdNum * rateData.rate;
+
     console.log(`[PAYMENTS SEND] Executing instant transfer of ${amountCusd} cUSD to ${recipientAddress}`);
-    const decryptedKey = decryptPrivateKey(merchant.encryptedPrivateKey);
-    const txHash = await transferCusdFromMerchant(decryptedKey, recipientAddress, parseFloat(amountCusd).toFixed(6));
+    const txHash = await transferCusdFromMerchant(decryptedKey, recipientAddress, amountCusdNum.toFixed(6));
 
     const { data: transaction, error: txError } = await supabase.from('Transaction').insert({
+      id: crypto.randomUUID(),
       merchantId,
       type: 'outgoing',
       direction: 'out',
-      amountCusd: parseFloat(amountCusd),
+      amountCusd: amountCusdNum,
+      amountLocal,
+      currencyLocal: currency,
+      exchangeRate: rateData.rate,
       txHash,
       method: 'x402',
       status: 'confirmed',

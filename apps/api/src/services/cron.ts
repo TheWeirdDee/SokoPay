@@ -1,22 +1,26 @@
 import { supabase } from '../config/supabase';
-import { transferCusdFromMerchant, getBalance, decryptPrivateKey } from './wallet';
+import { transferCusdFromMerchant, getBalance, decryptPrivateKey, getIncomingCusdTransfers } from './wallet';
+import { getCachedRate } from './muon';
 import axios from 'axios';
+import crypto from 'crypto';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 
 export function startCronDaemon() {
   console.log('[CRON DAEMON] Starting SokoPay scheduled payment check daemon...');
-  
+
   checkPendingPayments();
   checkAutonomousAlerts();
   checkDailyAndWeeklyReports();
+  syncIncomingOnChainTransfers();
 
   setInterval(checkPendingPayments, 60000);
+  setInterval(syncIncomingOnChainTransfers, 5 * 60 * 1000); // every 5 min
 
   setInterval(() => {
     checkAutonomousAlerts();
     checkDailyAndWeeklyReports();
-  }, 300000);
+  }, 60 * 60 * 1000);
 }
 
 async function checkPendingPayments() {
@@ -65,11 +69,17 @@ async function checkPendingPayments() {
           payment.amountCusd.toFixed(6)
         );
 
+        const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
+        const rateData = await getCachedRate(currency);
         await supabase.from('Transaction').insert({
+          id: crypto.randomUUID(),
           merchantId: payment.merchantId,
           type: 'outgoing',
           direction: 'out',
           amountCusd: payment.amountCusd,
+          amountLocal: payment.amountCusd * rateData.rate,
+          currencyLocal: currency,
+          exchangeRate: rateData.rate,
           txHash,
           method: 'x402',
           status: 'confirmed',
@@ -109,7 +119,8 @@ async function checkPendingPayments() {
           merchantId: payment.merchantId,
           type: 'payout',
           title: 'Scheduled Payment Executed',
-          body: `Successfully sent ${payment.amountCusd} cUSD to ${payment.recipient}.`
+          body: `Successfully sent ${payment.amountCusd} cUSD to ${payment.recipient}.`,
+          createdAt: new Date().toISOString()
         });
 
       } catch (err: any) {
@@ -119,7 +130,8 @@ async function checkPendingPayments() {
           merchantId: payment.merchantId,
           type: 'alert',
           title: 'Scheduled Payment Failed',
-          body: `Scheduled payment to ${payment.recipient} failed: ${err.message || 'Unknown error'}`
+          body: `Scheduled payment to ${payment.recipient} failed: ${err.message || 'Unknown error'}`,
+          createdAt: new Date().toISOString()
         });
       }
     }
@@ -156,7 +168,8 @@ async function checkAutonomousAlerts() {
             merchantId: merchant.id,
             type: 'low_balance_alert',
             title: 'Low Wallet Balance Alert',
-            body: `Your SokoPay wallet balance is low: ${cusdVal.toFixed(2)} cUSD (Threshold is ${threshold} cUSD). Please top up to ensure scheduled payouts continue to execute successfully.`
+            body: `Your SokoPay wallet balance is low: ${cusdVal.toFixed(2)} cUSD (Threshold is ${threshold} cUSD). Please top up to ensure scheduled payouts continue to execute successfully.`,
+            createdAt: new Date().toISOString()
           });
           console.log(`[CRON DAEMON] Low balance alert created for merchant ${merchant.id}`);
         }
@@ -188,7 +201,8 @@ async function checkAutonomousAlerts() {
               merchantId: merchant.id,
               type: 'overdue_invoice_alert',
               title: 'Overdue Invoice Warning',
-              body: `Invoice #${invoice.id} issued to "${invoice.customerName || 'Customer'}" for ${invoice.currencyLocal} ${formattedAmount} is overdue by 3+ days (Due date: ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}). Tap to follow up.`
+              body: `Invoice #${invoice.id} issued to "${invoice.customerName || 'Customer'}" for ${invoice.currencyLocal} ${formattedAmount} is overdue by 3+ days (Due date: ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}). Tap to follow up.`,
+              createdAt: new Date().toISOString()
             });
             console.log(`[CRON DAEMON] Overdue invoice alert created for merchant ${merchant.id}, Invoice ${invoice.id}`);
           }
@@ -206,7 +220,7 @@ async function checkDailyAndWeeklyReports() {
 
   console.log(`[CRON DAEMON] Running daily/weekly report check (Current local hour: ${currentHour})...`);
 
-  if (currentHour >= 8) {
+  if (currentHour === 8) {
     try {
       const { data: merchants } = await supabase.from('Merchant').select('*');
       if (merchants) {
@@ -265,7 +279,8 @@ async function checkDailyAndWeeklyReports() {
               merchantId: merchant.id,
               type: 'daily_report',
               title: 'Daily Business Summary',
-              body: summary
+              body: summary,
+              createdAt: new Date().toISOString()
             });
 
             console.log(`[CRON DAEMON] Daily report notification created for merchant ${merchant.id}`);
@@ -278,7 +293,7 @@ async function checkDailyAndWeeklyReports() {
   }
 
   const isSunday = now.getDay() === 0;
-  if (isSunday && currentHour >= 9) {
+  if (isSunday && currentHour === 9) {
     try {
       const { data: merchants } = await supabase.from('Merchant').select('*');
       if (merchants) {
@@ -337,7 +352,8 @@ async function checkDailyAndWeeklyReports() {
               merchantId: merchant.id,
               type: 'weekly_report',
               title: 'Weekly Performance Report',
-              body: summary
+              body: summary,
+              createdAt: new Date().toISOString()
             });
 
             console.log(`[CRON DAEMON] Weekly report notification created for merchant ${merchant.id}`);
@@ -408,5 +424,61 @@ Here are the stats:
     return `Daily Report for ${businessName}: You get total inflow of ${currency} ${inflow.toFixed(2)}, total outflow of ${currency} ${outflow.toFixed(2)}, and cash sales of ${currency} ${cashSales.toFixed(2)}. Make we push harder tomorrow!`;
   } else {
     return `Daily Report for ${businessName}: Total inflow is ${currency} ${inflow.toFixed(2)}, total outflow is ${currency} ${outflow.toFixed(2)}, and cash sales of ${currency} ${cashSales.toFixed(2)}. Kazi njema!`;
+  }
+}
+
+// Scan the last ~7 hours of Celo blocks for incoming cUSD transfers
+// to any merchant wallet that aren't already recorded as transactions.
+async function syncIncomingOnChainTransfers() {
+  try {
+    const { data: merchants } = await supabase.from('Merchant').select('id, walletAddress, country');
+    if (!merchants || merchants.length === 0) return;
+
+    for (const merchant of merchants) {
+      if (!merchant.walletAddress) continue;
+
+      try {
+        const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
+        const rateData = await getCachedRate(currency);
+
+        // 1000 blocks ≈ 83 min on Celo (5s/block); safe within forno's query limit
+        const transfers = await getIncomingCusdTransfers(merchant.walletAddress, 1000);
+
+        for (const transfer of transfers) {
+          if (!transfer.txHash || parseFloat(transfer.amountCusd) <= 0) continue;
+
+          // Skip if already recorded
+          const { data: existing } = await supabase.from('Transaction')
+            .select('id')
+            .eq('txHash', transfer.txHash)
+            .maybeSingle();
+
+          if (existing) continue;
+
+          const amountCusdNum = parseFloat(transfer.amountCusd);
+          await supabase.from('Transaction').insert({
+            id: crypto.randomUUID(),
+            merchantId: merchant.id,
+            type: 'incoming',
+            direction: 'in',
+            amountCusd: amountCusdNum,
+            amountLocal: amountCusdNum * rateData.rate,
+            currencyLocal: currency,
+            exchangeRate: rateData.rate,
+            txHash: transfer.txHash,
+            method: 'x402',
+            status: 'confirmed',
+            counterpart: transfer.from,
+            notes: 'Direct on-chain cUSD transfer'
+          });
+
+          console.log(`[SYNC] Recorded incoming ${transfer.amountCusd} cUSD to merchant ${merchant.id} — tx: ${transfer.txHash}`);
+        }
+      } catch (err: any) {
+        console.error(`[SYNC] Error scanning merchant ${merchant.id}:`, err.message);
+      }
+    }
+  } catch (err: any) {
+    console.error('[SYNC] syncIncomingOnChainTransfers failed:', err.message);
   }
 }

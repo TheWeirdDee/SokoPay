@@ -53,5 +53,7 @@ const server = createServer(app);
 server.listen(port, () => {
   console.log(`SokoPay API listening on port ${port}`);
   initWebSocketServer(server);
-  startCronDaemon();
+  setTimeout(() => {
+    startCronDaemon();
+  }, 30 * 1000);
 });

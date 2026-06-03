@@ -243,21 +243,27 @@ router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => 
 
 router.get('/by-phone/:phone', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const rawPhone = decodeURIComponent(req.params.phone).replace(/\s+/g, '');
+    const rawPhone = decodeURIComponent(req.params.phone).replace(/[\s\-]/g, '');
 
-    // Build lookup candidates to handle local vs international formats
+    // Build lookup candidates covering all common formats
     const candidates: string[] = [rawPhone];
-    if (!rawPhone.startsWith('+')) {
+    if (rawPhone.startsWith('+')) {
+      // E.164 → also try local 0... format
+      if (rawPhone.startsWith('+234')) candidates.push('0' + rawPhone.slice(4));
+      if (rawPhone.startsWith('+254')) candidates.push('0' + rawPhone.slice(4));
+    } else {
       candidates.push('+' + rawPhone);
       if (rawPhone.startsWith('0')) {
-        candidates.push('+234' + rawPhone.slice(1)); // Nigeria: 080... → +23480...
-        candidates.push('+254' + rawPhone.slice(1)); // Kenya:   071... → +25471...
+        candidates.push('+234' + rawPhone.slice(1)); // 080... → +23480...
+        candidates.push('+254' + rawPhone.slice(1)); // 071... → +25471...
       }
     }
 
+    console.log('[by-phone] Searching candidates:', candidates);
+
     const { data: merchant, error } = await supabase
       .from('Merchant')
-      .select('businessName, walletAddress, phone')
+      .select('id, businessName, walletAddress, phone')
       .in('phone', candidates)
       .maybeSingle();
 
@@ -267,8 +273,13 @@ router.get('/by-phone/:phone', requireAuth, async (req: AuthRequest, res: Respon
       return res.status(404).json({ success: false, error: 'No SokoPay merchant found with this phone number' });
     }
 
+    if (merchant.id === req.merchantId) {
+      return res.status(400).json({ success: false, error: 'Cannot pay yourself' });
+    }
+
     return res.json({
       success: true,
+      found: true,
       businessName: merchant.businessName,
       walletAddress: merchant.walletAddress,
       phone: merchant.phone

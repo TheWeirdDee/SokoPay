@@ -26,15 +26,16 @@ export default function PinModal({ isOpen, onClose, onSuccess, description }: Pi
       setShouldShake(false);
       setNoPinConfigured(false);
 
-      // Probe to detect if PIN is configured — use a dummy value
-      api.post('/auth/verify-pin', { pin: '____probe____' }).catch((err) => {
-        const data = err?.response?.data;
-        if (data?.noPinConfigured) {
+      // Probe to detect if PIN is configured (returns 200, not 400)
+      api.post('/auth/verify-pin', { pin: '____probe____' }).then((res) => {
+        if (res.data?.noPinConfigured) {
           setNoPinConfigured(true);
         } else {
-          // PIN IS configured — focus first box
           setTimeout(() => { inputRefs.current[0]?.focus(); }, 150);
         }
+      }).catch(() => {
+        // Network error — assume PIN is configured and let user try
+        setTimeout(() => { inputRefs.current[0]?.focus(); }, 150);
       });
     }
   }, [isOpen]);

@@ -456,25 +456,44 @@ export default function Dashboard() {
                       </span>
                     )}
                   </div>
-                  <h2 className="text-xs font-bold text-[#7A6B55] mt-4 uppercase tracking-wider">Today's Earnings</h2>
                 </div>
-                
-                <div>
-                  <div className="font-display font-extrabold text-[#FAF7F2] text-5xl leading-none flex items-baseline">
-                    <span className="text-3xl mr-1 font-bold">{currencySymbol}</span>
-                    {todayEarnings.local !== '0.00' ? formatCurrency(todayEarnings.local) : formatCurrency(Number(balance.local))}
+
+                {/* Available Balance + Today's Earnings — side by side */}
+                <div className="flex items-stretch gap-0 mt-2">
+                  {/* Available Balance */}
+                  <div className="flex-1 pr-5">
+                    <p className="text-[10px] font-bold text-[#7A6B55] uppercase tracking-wider mb-2">Available Balance</p>
+                    <div className="font-display font-extrabold text-[#FAF7F2] text-4xl leading-none flex items-baseline">
+                      <span className="text-2xl mr-0.5 font-bold">{currencySymbol}</span>
+                      {formatCurrency(Number(balance.local))}
+                    </div>
+                    <p className="text-[#7A6B55] font-mono text-xs mt-1.5">
+                      {Number(balance.cusd).toFixed(4)} cUSD
+                    </p>
                   </div>
-                  <p className="text-[#7A6B55] font-mono text-sm mt-1.5">
-                    = {todayEarnings.cusd !== '0.00' ? Number(todayEarnings.cusd).toFixed(2) : Number(balance.cusd).toFixed(2)} cUSD
-                  </p>
-                  
-                  <div className="mt-3 flex justify-between items-center text-[10px] text-[#7A6B55] font-mono bg-white/5 px-3 py-1.5 rounded-lg border border-white/5 select-none max-w-full">
-                    <span className="font-bold">Live Rate: {currencySymbol}{formatCurrency(data.rate)} per cUSD</span>
-                    <span className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#5C6B3A] animate-pulse"></span>
-                      Updated {secondsSinceUpdate === 0 ? 'just now' : `${secondsSinceUpdate}s ago`}
-                    </span>
+
+                  {/* Divider */}
+                  <div className="w-px bg-white/10 self-stretch mx-1" />
+
+                  {/* Today's Earnings */}
+                  <div className="flex-1 pl-5">
+                    <p className="text-[10px] font-bold text-[#7A6B55] uppercase tracking-wider mb-2">Today's Earnings</p>
+                    <div className="font-display font-extrabold text-[#FAF7F2] text-4xl leading-none flex items-baseline">
+                      <span className="text-2xl mr-0.5 font-bold">{currencySymbol}</span>
+                      {formatCurrency(todayEarnings.local)}
+                    </div>
+                    <p className="text-[#7A6B55] font-mono text-xs mt-1.5">
+                      {Number(todayEarnings.cusd).toFixed(4)} cUSD
+                    </p>
                   </div>
+                </div>
+
+                <div className="mt-1 flex justify-between items-center text-[10px] text-[#7A6B55] font-mono bg-white/5 px-3 py-1.5 rounded-lg border border-white/5 select-none max-w-full">
+                  <span className="font-bold">Live Rate: {currencySymbol}{formatCurrency(data.rate)} per cUSD</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#5C6B3A] animate-pulse"></span>
+                    Updated {secondsSinceUpdate === 0 ? 'just now' : `${secondsSinceUpdate}s ago`}
+                  </span>
                 </div>
 
                 {/* Week bar chart */}
@@ -590,7 +609,7 @@ export default function Dashboard() {
                     <p className="text-xs mt-1">Incoming payments will show up here automatically.</p>
                   </div>
                 ) : (
-                  recentTransactions.map((tx) => {
+                  recentTransactions.slice(0, 3).map((tx) => {
                     const isIncoming = tx.direction === 'in';
                     const isCash = tx.method === 'cash';
                     

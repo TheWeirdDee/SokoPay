@@ -37,7 +37,7 @@ export default function Pay() {
   const [instantTxHash, setInstantTxHash] = useState('');
 
   // Recipient resolution
-  const [lookupStatus, setLookupStatus] = useState<'idle' | 'looking' | 'found' | 'not_found' | 'wallet'>('idle');
+  const [lookupStatus, setLookupStatus] = useState<'idle' | 'looking' | 'found' | 'not_found' | 'wallet' | 'invalid_wallet' | 'self'>('idle');
   const [resolvedAddress, setResolvedAddress] = useState('');
   const [resolvedBusinessName, setResolvedBusinessName] = useState('');
 
@@ -85,11 +85,17 @@ export default function Pay() {
       return;
     }
 
-    // Wallet address: 0x + 40 hex chars
-    if (/^0x[0-9a-fA-F]{40}$/.test(input)) {
-      setLookupStatus('wallet');
-      setResolvedAddress(input);
-      setResolvedBusinessName('');
+    // Anything starting with 0x is treated as a wallet address attempt
+    if (input.startsWith('0x') || input.startsWith('0X')) {
+      if (/^0x[0-9a-fA-F]{40}$/i.test(input)) {
+        setLookupStatus('wallet');
+        setResolvedAddress(input);
+        setResolvedBusinessName('');
+      } else {
+        setLookupStatus('invalid_wallet');
+        setResolvedAddress('');
+        setResolvedBusinessName('');
+      }
       return;
     }
 
@@ -109,10 +115,11 @@ export default function Pay() {
             setResolvedBusinessName('');
             setLookupStatus('not_found');
           }
-        } catch {
+        } catch (err: any) {
+          const msg = err?.response?.data?.error || '';
           setResolvedAddress('');
-          setResolvedBusinessName('');
-          setLookupStatus('not_found');
+          setResolvedBusinessName(msg === 'Cannot pay yourself' ? '(yourself)' : '');
+          setLookupStatus(msg === 'Cannot pay yourself' ? 'self' : 'not_found');
         }
       }, 500);
       return () => clearTimeout(timer);
@@ -129,13 +136,23 @@ export default function Pay() {
     setInstantSuccess('');
     setInstantTxHash('');
 
-    if (!resolvedAddress || !/^0x[0-9a-fA-F]{40}$/.test(resolvedAddress)) {
+    if (lookupStatus === 'self') {
+      setInstantError('Cannot pay yourself.');
+      return;
+    }
+
+    if (lookupStatus === 'invalid_wallet') {
+      setInstantError('Invalid wallet address — must be exactly 42 characters: 0x followed by 40 hex digits (0–9, a–f).');
+      return;
+    }
+
+    if (!resolvedAddress || !/^0x[0-9a-fA-F]{40}$/i.test(resolvedAddress)) {
       if (lookupStatus === 'not_found') {
-        setInstantError('No SokoPay merchant found with that phone number. Enter a valid wallet address (0x...) instead.');
+        setInstantError('No SokoPay merchant found with that phone number. Try a wallet address instead.');
       } else if (lookupStatus === 'looking') {
         setInstantError('Still looking up recipient — please wait a moment.');
       } else {
-        setInstantError('Enter a phone number to find a SokoPay merchant, or a wallet address starting with 0x.');
+        setInstantError('Enter a phone number (e.g. 08012345678) or a full wallet address (0x + 40 hex chars).');
       }
       return;
     }
@@ -147,8 +164,8 @@ export default function Pay() {
     }
 
     const amountCusd = localAmt / currentRate;
-    if (!balance || amountCusd > parseFloat(balance.cusd)) {
-      setInstantError('Insufficient balance to complete this transfer.');
+    if (balance && amountCusd > parseFloat(balance.cusd)) {
+      setInstantError(`Insufficient balance. You have ${Number(balance.cusd).toFixed(2)} cUSD, need ${amountCusd.toFixed(2)} cUSD.`);
       return;
     }
 
@@ -399,10 +416,24 @@ export default function Pay() {
                   No SokoPay merchant with this number
                 </p>
               )}
+              {lookupStatus === 'self' && (
+                <p className="text-xs text-error font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Cannot pay yourself
+                </p>
+              )}
               {lookupStatus === 'wallet' && (
                 <p className="text-xs text-text-muted font-semibold flex items-center gap-1.5">
                   <User className="w-3.5 h-3.5 shrink-0" />
                   External wallet address
+                </p>
+              )}
+              {lookupStatus === 'invalid_wallet' && (
+                <p className="text-xs text-error font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {instantAddress.length !== 42
+                    ? `Wrong length (${instantAddress.length} chars) — wallet address must be exactly 42`
+                    : 'Contains invalid characters — only 0–9 and a–f allowed after 0x'}
                 </p>
               )}
             </div>

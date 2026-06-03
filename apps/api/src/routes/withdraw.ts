@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getCachedRate } from '../services/muon';
 import { transferCusdFromMerchant, decryptPrivateKey } from '../services/wallet';
+import { privateKeyToAccount } from 'viem/accounts';
 import { simulateYellowCardPayout, simulateKotaniPayPayout } from '../services/offramp';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -129,8 +130,12 @@ router.post('/execute', requireAuth, async (req: AuthRequest, res: Response) => 
     const rate = rateData.rate;
     const parseCusd = parseFloat(amountCusd);
 
-    console.log(`[WITHDRAW EXECUTE] On-chain transfer of ${parseCusd} cUSD from merchant ${merchant.walletAddress} to offramp pool`);
     const decryptedKey = decryptPrivateKey(merchant.encryptedPrivateKey);
+    const signerAddress = privateKeyToAccount(decryptedKey).address;
+    if (signerAddress.toLowerCase() !== merchant.walletAddress?.toLowerCase()) {
+      console.error('[WITHDRAW] ADDRESS MISMATCH — DB:', merchant.walletAddress, '/ Key:', signerAddress);
+    }
+    console.log(`[WITHDRAW EXECUTE] On-chain transfer of ${parseCusd} cUSD from ${signerAddress} to offramp pool`);
     const txHash = await transferCusdFromMerchant(decryptedKey, OFFRAMP_POOL_ADDRESS, parseCusd.toFixed(6));
 
     let offrampResult;
@@ -141,6 +146,7 @@ router.post('/execute', requireAuth, async (req: AuthRequest, res: Response) => 
     }
 
     const { data: transaction, error: txError } = await supabase.from('Transaction').insert({
+      id: crypto.randomUUID(),
       merchantId,
       type: 'withdrawal',
       direction: 'out',

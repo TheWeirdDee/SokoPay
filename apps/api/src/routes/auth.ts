@@ -12,10 +12,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
 const pinLockouts = new Map<string, { attempts: number; lockedUntil: number }>();
 
-function generateRandomOTP() {
-  return '123456';
-}
-
 function hashString(val: string) {
   return crypto.createHash('sha256').update(val).digest('hex');
 }
@@ -34,18 +30,7 @@ router.post('/request-otp', async (req: Request, res: Response) => {
       return res.json({ success: true, exists: true, message: 'Merchant exists, prompt for password' });
     }
 
-    const otp = generateRandomOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    const { error } = await supabase.from('OTPStore').upsert({
-      phone,
-      otp,
-      expiresAt: expiresAt.toISOString()
-    });
-
-    if (error) throw error;
-
-    await sendOTP(phone, otp);
+    await sendOTP(phone);
 
     res.json({ success: true, exists, message: 'OTP sent successfully' });
   } catch (error: any) {
@@ -128,7 +113,6 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       merchant = newMerchant;
     }
 
-    await supabase.from('OTPStore').delete().eq('phone', phone);
     const token = jwt.sign({ merchantId: merchant.id }, JWT_SECRET, { expiresIn: '30d' });
 
     res.json({
@@ -160,6 +144,14 @@ router.post('/verify-pin', requireAuth, async (req: AuthRequest, res: Response) 
 
     const { data: merchant, error } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
     if (error || !merchant) return res.status(404).json({ error: 'Merchant not found' });
+
+    // Probe: check whether a PIN is configured without consuming a lockout attempt
+    if (pin === '____probe____') {
+      if (!merchant.paymentPinHash && !merchant.paymentPasswordHash) {
+        return res.json({ success: false, noPinConfigured: true });
+      }
+      return res.json({ success: false, configured: true });
+    }
 
     let pinMatch = false;
     if (merchant.paymentPinHash && merchant.paymentPinHash.startsWith('$2')) {

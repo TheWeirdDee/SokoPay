@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getCachedRate } from '../services/muon';
+import crypto from 'crypto';
 
 const router = Router();
 
@@ -81,6 +82,7 @@ router.post('/cash', requireAuth, async (req: AuthRequest, res: Response) => {
     const amountCusd = parsedAmountLocal / rateData.rate;
 
     const { data: transaction, error } = await supabase.from('Transaction').insert({
+      id: crypto.randomUUID(),
       merchantId,
       type: 'cash',
       direction: 'in',

@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const currentPath = location.pathname;
+  const [showMore, setShowMore] = useState(false);
 
   const navItems = [
     { name: 'Home', path: '/dashboard', icon: (
@@ -49,8 +51,10 @@ export default function Layout() {
     )}
   ];
 
-  // For mobile navigation, we restrict to the main 4 tabs (Home, Chat, Pay, History)
-  const mobileNavItems = navItems.slice(0, 4);
+  // Mobile bottom bar: 4 primary items. Everything else is in the More drawer.
+  const mobileMainNames = ['Home', 'Chat', 'Pay', 'Withdraw'];
+  const mobileNavItems = navItems.filter(i => mobileMainNames.includes(i.name));
+  const moreNavItems   = navItems.filter(i => !mobileMainNames.includes(i.name)); // History, Analytics, My QR, Settings
 
   return (
     <div className="min-h-screen bg-bg flex flex-col font-body text-text">
@@ -61,7 +65,7 @@ export default function Layout() {
           <h1 className="font-display text-2xl font-bold tracking-tight text-text-light">SokoPay</h1>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2 mt-4">
+        <nav className="flex-1 p-4 space-y-1 mt-4 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = currentPath === item.path;
             return (
@@ -69,7 +73,7 @@ export default function Layout() {
                 key={item.name}
                 onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-semibold text-sm transition-all text-left ${
-                  isActive 
+                  isActive
                     ? 'bg-accent text-text-light shadow-card border border-border'
                     : 'text-text-muted hover:text-text-light hover:bg-bg-card/10'
                 }`}
@@ -93,23 +97,66 @@ export default function Layout() {
         </main>
       </div>
 
+      {/* More menu backdrop */}
+      {showMore && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setShowMore(false)}
+        />
+      )}
+
+      {/* More menu slide-up sheet */}
+      <div className={`md:hidden fixed left-0 right-0 z-50 bg-bg-dark border-t-2 border-border/25 transition-transform duration-200 ${showMore ? 'translate-y-0' : 'translate-y-full'}`}
+        style={{ bottom: '64px' }}
+      >
+        <div className="grid grid-cols-3 gap-px p-4">
+          {moreNavItems.map((item) => {
+            const isActive = currentPath === item.path;
+            return (
+              <button
+                key={item.name}
+                onClick={() => { navigate(item.path); setShowMore(false); }}
+                className={`flex flex-col items-center justify-center gap-1.5 py-4 rounded-xl transition-colors ${
+                  isActive ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-light hover:bg-bg-card/10'
+                }`}
+              >
+                {item.icon}
+                <span className="text-[11px] font-semibold">{item.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Sticky Bottom Navigation (Mobile Only) */}
-      <nav className="md:hidden bg-bg-dark py-2.5 px-6 fixed bottom-0 left-0 right-0 flex justify-between items-center z-50 h-16 border-t-2 border-border/25">
+      <nav className="md:hidden bg-bg-dark py-2.5 px-2 fixed bottom-0 left-0 right-0 flex justify-between items-center z-50 h-16 border-t-2 border-border/25">
         {mobileNavItems.map((item) => {
           const isActive = currentPath === item.path;
           return (
             <button
               key={item.name}
-              onClick={() => navigate(item.path)}
+              onClick={() => { navigate(item.path); setShowMore(false); }}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
                 isActive ? 'text-accent' : 'text-text-muted hover:text-text-light'
               }`}
             >
               {item.icon}
-              <span className="text-[11px] font-semibold">{item.name}</span>
+              <span className="text-[10px] font-semibold">{item.name}</span>
             </button>
           );
         })}
+        {/* More button */}
+        <button
+          onClick={() => setShowMore(v => !v)}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+            showMore ? 'text-accent' : 'text-text-muted hover:text-text-light'
+          }`}
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <span className="text-[10px] font-semibold">More</span>
+        </button>
       </nav>
       
     </div>

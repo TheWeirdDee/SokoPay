@@ -5,14 +5,16 @@ import {
   Bot,
   Mic,
   SendHorizontal,
-  ArrowLeft,
   AlertTriangle,
   CheckCircle,
   Loader2,
   Landmark,
   Send,
   Volume2,
-  VolumeX
+  Clock,
+  Plus,
+  X,
+  PanelLeftOpen
 } from 'lucide-react';
 import { useCache } from '../context/CacheContext';
 import PinModal from '../components/PinModal';
@@ -23,6 +25,17 @@ interface Message {
   content: string;
   wasVoice: boolean;
   createdAt: string;
+  isTranscribing?: boolean;
+}
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/`(.*?)`/g, '$1')
+    .replace(/^[-•]\s/gm, '')
+    .trim();
 }
 
 // Helpers to parse tags and extract JSON from model response
@@ -76,136 +89,70 @@ export default function Chat() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [error, setError] = useState('');
-  const [isMuted, setIsMuted] = useState(false);
-  const [showWhatsappBanner, setShowWhatsappBanner] = useState(true);
 
-  const isFirstLoad = useRef(true);
+  const [activeSessionDate, setActiveSessionDate] = useState<string | null>(null);
+  const [showSessionsSidebar, setShowSessionsSidebar] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<any | null>(null);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
 
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
-  const [mutedMessageIds, setMutedMessageIds] = useState<string[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     return () => {
-      // Clear speak states when unmounting / leaving page
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
+        currentAudioRef.current = null;
       }
       setPlayingMessageId(null);
-      setMutedMessageIds([]);
     };
   }, []);
 
-  const handleSpeakerClick = (id: string, text: string) => {
-    const isIdle = playingMessageId !== id && !mutedMessageIds.includes(id);
-    const isPlaying = playingMessageId === id;
-    const isMutedState = mutedMessageIds.includes(id);
-
-    if (isIdle) {
-      setPlayingMessageId(id);
-      speakMessage(text, id);
-    } else if (isPlaying) {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current.currentTime = 0;
-      }
-      setMutedMessageIds(prev => [...prev, id]);
+  const playTTS = async (text: string, messageId: string) => {
+    // Stop anything currently playing
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    // Clicking the same message while playing → stop
+    if (playingMessageId === messageId) {
       setPlayingMessageId(null);
-    } else if (isMutedState) {
-      setMutedMessageIds(prev => prev.filter(mId => mId !== id));
-      setPlayingMessageId(id);
-      speakMessage(text, id);
+      return;
     }
-  };
 
-  // Strip markdown and special characters before sending to TTS
-  const stripForTTS = (text: string): string => {
-    return text
-      .replace(/[*_~`#>|[\](){}]/g, '')   // remove markdown symbols
-      .replace(/\[PAYMENT_APPROVAL\].*/s, '')
-      .replace(/\[WITHDRAW_APPROVAL\].*/s, '')
-      .replace(/https?:\/\/\S+/g, '')      // remove URLs
-      .replace(/0x[a-fA-F0-9]+/g, '')      // remove blockchain hashes
-      .replace(/\n{2,}/g, '. ')            // collapse double newlines to period
-      .replace(/\n/g, ' ')                 // single newlines to space
-      .replace(/\s{2,}/g, ' ')             // collapse multiple spaces
-      .trim();
-  };
-
-  // Split text at sentence boundaries for sequential playback
-  const splitSentences = (text: string): string[] => {
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    const chunks: string[] = [];
-    let current = '';
-    for (const s of sentences) {
-      if ((current + s).length > 400) {
-        if (current) chunks.push(current.trim());
-        current = s;
-      } else {
-        current += s;
-      }
-    }
-    if (current.trim()) chunks.push(current.trim());
-    return chunks;
-  };
-
-  const speakMessage = async (content: string, messageId?: string) => {
-    if (isMuted) return;
+    setPlayingMessageId(messageId);
 
     try {
-      const parsed = parseMessageContent(content);
-      const rawText = parsed.text;
-      if (!rawText) return;
+      const cleanText = stripMarkdown(text)
+        .replace(/\[PAYMENT_APPROVAL\].*/s, '')
+        .replace(/\[WITHDRAW_APPROVAL\].*/s, '')
+        .replace(/0x[a-fA-F0-9]{4,}/g, 'a wallet address')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 500);
 
-      const cleanText = stripForTTS(rawText);
-      if (!cleanText) return;
+      if (!cleanText) { setPlayingMessageId(null); return; }
 
-      // Detect language from merchant country profile, not regex
-      const language = merchant?.country === 'KE' ? 'sw-KE' : 'en-NG';
+      const res = await api.post('/agent/speak', { text: cleanText });
 
-      // Split long messages at sentence boundaries
-      const chunks = splitSentences(cleanText);
+      if (!res.data.audio) { setPlayingMessageId(null); return; }
 
-      for (const chunk of chunks) {
-        // Check if we got muted/stopped mid-playback
-        if (isMuted) break;
+      const binaryStr = atob(res.data.audio);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      const audioUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
 
-        try {
-          const res = await api.post('/agent/speak', { text: chunk, language });
-          if (res.data.success && res.data.audioContent) {
-            const audioUrl = `data:audio/mp3;base64,${res.data.audioContent}`;
-            const audio = new Audio(audioUrl);
-            currentAudioRef.current = audio;
-
-            // Wait for this chunk to finish before playing next
-            await new Promise<void>((resolve) => {
-              audio.onended = () => {
-                resolve();
-              };
-              audio.onerror = () => {
-                resolve();
-              };
-              audio.play().catch(() => resolve());
-            });
-          }
-        } catch {
-          // TTS call failed — fail silently, chat still works
-        }
-      }
-
-      // All chunks done, clear playing state
-      if (messageId) {
-        setPlayingMessageId(prev => prev === messageId ? null : prev);
-      }
+      const audio = new Audio(audioUrl);
+      currentAudioRef.current = audio;
+      audio.onended = () => { setPlayingMessageId(null); URL.revokeObjectURL(audioUrl); };
+      audio.onerror = () => { setPlayingMessageId(null); URL.revokeObjectURL(audioUrl); };
+      await audio.play();
     } catch {
-      // Fail silently
-      if (messageId) {
-        setPlayingMessageId(null);
-      }
+      setPlayingMessageId(null);
     }
   };
+
+  const handleSpeakerClick = (id: string, text: string) => playTTS(text, id);
 
   // Approval card action states
   const [cardStates, setCardStates] = useState<{ [msgId: string]: any }>({});
@@ -263,65 +210,16 @@ export default function Chat() {
     });
   }, [messages]);
 
-  // Initial loads
+  // Load history on mount
   useEffect(() => {
-    async function initChat() {
-      fetchAccounts();
-
-      try {
-        const res = await api.get('/agent/history');
-        const history = res.data.history;
-        setMessages(history);
-
-        if (history.length === 0) {
-          // Empty chat: generate personalized data-driven custom greeting!
-          setIsTyping(true);
-          try {
-            const welcomeRes = await api.post('/agent/message', { isInit: true, message: '__INIT__' });
-            const welcomeMsg: Message = {
-              id: Math.random().toString(),
-              role: 'assistant',
-              content: welcomeRes.data.reply,
-              wasVoice: false,
-              createdAt: new Date().toISOString()
-            };
-            setMessages([welcomeMsg]);
-          } catch (e) {
-            console.error('Failed to trigger custom welcome greeting:', e);
-            const fallbackMsg: Message = {
-              id: Math.random().toString(),
-              role: 'assistant',
-              content: 'Good morning! Welcome to SokoPay. How can I help you manage your business finances today?',
-              wasVoice: false,
-              createdAt: new Date().toISOString()
-            };
-            setMessages([fallbackMsg]);
-          } finally {
-            setIsTyping(false);
-          }
-        }
-      } catch (err: any) {
-        console.error(err);
-        setError('Failed to load chat history.');
-      }
-    }
-    initChat();
+    fetchAccounts();
+    api.get('/agent/history')
+      .then(res => setMessages(res.data.history || []))
+      .catch(() => setError('Failed to load chat history.'));
   }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-
-    if (messages.length === 0) return;
-    if (isFirstLoad.current) {
-      isFirstLoad.current = false;
-      return;
-    }
-
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant') {
-      setPlayingMessageId(lastMsg.id);
-      speakMessage(lastMsg.content, lastMsg.id);
-    }
   }, [messages, isTyping]);
 
   const handleSendMessage = async (textToSend: string) => {
@@ -346,14 +244,16 @@ export default function Chat() {
       const tempAgentMessage: Message = {
         id: Math.random().toString(),
         role: 'assistant',
-        content: res.data.reply,
+        content: stripMarkdown(res.data.reply),
         wasVoice: false,
         createdAt: new Date().toISOString()
       };
       setMessages((prev) => [...prev, tempAgentMessage]);
     } catch (err: any) {
-      console.error(err);
-      setError(err.response?.data?.error || 'AI agent could not respond. Please try again.');
+      const msg = err.response?.status === 429
+        ? 'Too many requests — wait a moment then try again.'
+        : (err.response?.data?.error || 'AI agent could not respond. Please try again.');
+      setError(msg);
     } finally {
       setIsTyping(false);
     }
@@ -395,31 +295,49 @@ export default function Chat() {
           return;
         }
 
+        // Show "Transcribing..." placeholder immediately so it appears before agent response
+        const placeholderId = `transcribing-${Date.now()}`;
+        setMessages(prev => [...prev, {
+          id: placeholderId,
+          role: 'user',
+          content: 'Transcribing...',
+          wasVoice: true,
+          isTranscribing: true,
+          createdAt: new Date().toISOString()
+        } as Message]);
+
         setIsTyping(true);
         try {
           const base64Audio = await convertBlobToBase64(audioBlob);
           const res = await api.post('/agent/voice', { audio: base64Audio });
 
-          const tempUserMessage: Message = {
-            id: Math.random().toString(),
-            role: 'user',
-            content: res.data.transcript,
-            wasVoice: true,
-            createdAt: new Date().toISOString()
-          };
+          // Replace placeholder with real transcription
+          setMessages(prev => prev.map(m =>
+            m.id === placeholderId
+              ? { ...m, content: res.data.transcript, isTranscribing: false }
+              : m
+          ));
 
-          const tempAgentMessage: Message = {
+          // Then add agent response
+          setMessages(prev => [...prev, {
             id: Math.random().toString(),
             role: 'assistant',
-            content: res.data.reply,
+            content: stripMarkdown(res.data.reply),
             wasVoice: false,
             createdAt: new Date().toISOString()
-          };
-
-          setMessages((prev) => [...prev, tempUserMessage, tempAgentMessage]);
+          }]);
         } catch (err: any) {
-          console.error(err);
-          setError(err.response?.data?.error || 'Failed to transcribe voice note.');
+          const errText = err.response?.data?.error || 'Failed to transcribe voice note.';
+          setMessages(prev => [
+            ...prev.filter(m => m.id !== placeholderId),
+            {
+              id: `sys-${Date.now()}`,
+              role: 'system',
+              content: errText,
+              wasVoice: false,
+              createdAt: new Date().toISOString()
+            }
+          ]);
         } finally {
           setIsTyping(false);
         }
@@ -819,16 +737,100 @@ export default function Chat() {
     );
   };
 
+  // --- Session helpers ---
+  const todayDateStr = new Date().toDateString();
+
+  const sessionGroups = (() => {
+    const map = new Map<string, Message[]>();
+    messages.forEach(msg => {
+      const d = new Date(msg.createdAt).toDateString();
+      if (!map.has(d)) map.set(d, []);
+      map.get(d)!.push(msg);
+    });
+    return Array.from(map.entries())
+      .map(([date, msgs]) => ({ date, count: msgs.length }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  })();
+
+  const sessionLabel = (dateStr: string) => {
+    if (dateStr === todayDateStr) return 'Today';
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    if (dateStr === yesterday) return 'Yesterday';
+    return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const currentSessionDate = activeSessionDate ?? todayDateStr;
+  const displayedMessages = messages.filter(m => new Date(m.createdAt).toDateString() === currentSessionDate);
+  // --- End session helpers ---
+
   return (
-    <div className="flex flex-col h-screen bg-[#FAF7F2] font-body text-[#1A1208]">
+    <div className="flex h-screen bg-[#FAF7F2] font-body text-[#1A1208] overflow-hidden">
+      {/* Sessions sidebar — overlay on all screen sizes, toggled by button */}
+      {showSessionsSidebar && (
+        <div className="fixed inset-0 bg-black/40 z-30" onClick={() => setShowSessionsSidebar(false)} />
+      )}
+      <aside className={`
+        flex flex-col w-64 bg-[#1A1208] text-[#FAF7F2] z-40
+        fixed inset-y-0 left-0 transition-transform duration-200
+        ${showSessionsSidebar ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="h-16 flex items-center justify-between px-4 border-b border-white/10 shrink-0">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[#C4622D]" />
+            <span className="font-display font-bold text-sm uppercase tracking-wider">Chat History</span>
+          </div>
+          <button className="p-1 text-[#7A6B55] hover:text-white" onClick={() => setShowSessionsSidebar(false)}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* New chat button */}
+        <button
+          onClick={() => {
+            setMessages([]);
+            setActiveSessionDate(null);
+            setShowSessionsSidebar(false);
+          }}
+          className="mx-3 mt-3 flex items-center gap-2 px-3 py-2 rounded-lg border border-white/15 hover:bg-white/10 transition-colors text-sm font-semibold text-[#FAF7F2]/80 hover:text-white"
+        >
+          <Plus className="w-4 h-4" /> New Chat
+        </button>
+
+        <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2 mt-2">
+          {sessionGroups.length === 0 ? (
+            <p className="text-xs text-[#7A6B55] px-3 py-4 text-center">No conversations yet</p>
+          ) : (
+            sessionGroups.map(({ date, count }) => (
+              <button
+                key={date}
+                onClick={() => { setActiveSessionDate(date); setShowSessionsSidebar(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors text-sm ${
+                  currentSessionDate === date
+                    ? 'bg-[#C4622D] text-white font-bold'
+                    : 'text-[#FAF7F2]/70 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <div className="font-semibold leading-none">{sessionLabel(date)}</div>
+                <div className="text-[10px] mt-0.5 opacity-60">{count} message{count !== 1 ? 's' : ''}</div>
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
+
+      {/* Main chat column */}
+      <div className="flex-1 flex flex-col min-w-0">
+
       {/* Header */}
-      <header className="bg-[#FAF7F2] border-b border-[#DDD5C5] h-16 flex items-center px-6 justify-between shrink-0">
-        <div className="flex items-center gap-4">
+      <header className="sticky top-0 z-20 bg-[#FAF7F2] border-b border-[#DDD5C5] h-16 flex items-center px-4 md:px-6 justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          {/* History toggle */}
           <button
-            onClick={() => navigate('/dashboard')}
-            className="px-3 py-1 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-colors shadow-[2px_2px_0px_#1A1208] text-sm active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1"
+            onClick={() => setShowSessionsSidebar(true)}
+            className="p-2 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md hover:bg-border transition-colors shadow-[2px_2px_0px_#1A1208]"
+            title="Chat History"
           >
-            <ArrowLeft className="w-4 h-4" /> Back
+            <PanelLeftOpen className="w-4 h-4" />
           </button>
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-[#C4622D]" />
@@ -839,54 +841,7 @@ export default function Chat() {
           </div>
         </div>
 
-        <button
-          onClick={() => {
-            const newMuted = !isMuted;
-            setIsMuted(newMuted);
-            if (newMuted) {
-              // Stop any currently playing audio immediately
-              if (currentAudioRef.current) {
-                currentAudioRef.current.pause();
-                currentAudioRef.current.currentTime = 0;
-              }
-              setPlayingMessageId(null);
-            }
-          }}
-          className="px-3 py-1 border-2 border-[#1A1208] bg-[#F2EDE4] rounded-md font-bold hover:bg-border transition-all shadow-[2px_2px_0px_#1A1208] text-xs active:translate-x-[0.5px] active:translate-y-[0.5px] flex items-center gap-1.5 text-[#1A1208]"
-          title={isMuted ? "Unmute Voice" : "Mute Voice"}
-        >
-          {isMuted ? (
-            <>
-              <VolumeX className="w-3.5 h-3.5 text-[#B5271E]" />
-              <span className="font-mono uppercase tracking-wider font-extrabold">Muted</span>
-            </>
-          ) : (
-            <>
-              <Volume2 className="w-3.5 h-3.5 text-[#5C6B3A]" />
-              <span className="font-mono uppercase tracking-wider font-extrabold">Voice On</span>
-            </>
-          )}
-        </button>
       </header>
-
-      {/* WhatsApp Bot Banner */}
-      {showWhatsappBanner && (
-        <div className="bg-[#E4ECE0] border-b-2 border-b-[#1A1208] p-3 text-xs flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">💬</span>
-            <div>
-              <span className="font-bold text-[#1A1208]">WhatsApp Bot Layer (Coming Soon)</span>
-              <p className="text-[10px] text-[#7A6B55] font-semibold mt-0.5">Control your business finances and trigger payouts offline via WhatsApp commands. Coming Q3.</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowWhatsappBanner(false)}
-            className="text-[10px] font-bold text-[#1A1208] hover:underline bg-white/50 border border-[#DDD5C5] px-2 py-0.5 rounded"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {/* Error message */}
       {error && (
@@ -897,18 +852,28 @@ export default function Chat() {
 
       {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-        {messages.length === 0 ? (
+        {displayedMessages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center text-[#7A6B55] max-w-sm mx-auto space-y-4">
-            <Bot className="w-12 h-12 text-[#C4622D] animate-bounce" />
+            <Bot className="w-12 h-12 text-[#C4622D]" />
             <div>
               <h2 className="font-display font-bold text-lg text-[#1A1208]">Good morning, {merchant?.businessName || ''}!</h2>
-              <p className="text-xs mt-1.5 leading-relaxed font-semibold text-[#1A1208]">
-                Loading personalized greeting...
+              <p className="text-xs mt-1.5 leading-relaxed font-semibold text-[#7A6B55]">
+                Ask me anything about your business finances.
               </p>
             </div>
           </div>
         ) : (
-          messages.map((msg) => {
+          displayedMessages.map((msg) => {
+            if (msg.role === 'system') {
+              return (
+                <div key={msg.id} className="flex w-full justify-center">
+                  <div className="px-4 py-2 rounded-full bg-[#B5271E]/10 border border-[#B5271E]/30 text-[#B5271E] text-[11px] font-bold text-center max-w-[80%]">
+                    {msg.content}
+                  </div>
+                </div>
+              );
+            }
+
             const isUser = msg.role === 'user';
             const parsed = isUser ? { text: msg.content, type: 'text', data: null } : parseMessageContent(msg.content);
 
@@ -924,51 +889,28 @@ export default function Chat() {
                     }`}
                 >
                   <div className="text-xs font-semibold leading-relaxed whitespace-pre-wrap font-body">
-                    {msg.wasVoice && (
+                    {msg.wasVoice && !msg.isTranscribing && (
                       <span className="block text-[10px] font-black text-amber-100 uppercase tracking-wider mb-1 flex items-center gap-1">
                         <Mic className="w-3.5 h-3.5" /> Voice Transcript:
                       </span>
                     )}
                     <div className="flex justify-between items-start gap-3">
-                      <p className="flex-1">{parsed.text}</p>
-                      {!isUser && (() => {
-
-                        const isPlaying = playingMessageId === msg.id;
-                        const isMutedState = mutedMessageIds.includes(msg.id);
-
-                        let buttonClass = "speaker-btn shrink-0 p-1.5 rounded-full transition-all border border-[#1A1208]/15 ";
-                        let icon = <Volume2 className="w-3.5 h-3.5" />;
-                        let tooltip = "Tap to hear";
-
-                        if (isPlaying) {
-                          buttonClass += "playing bg-[#FCEAE2] text-[#C4622D]";
-                          icon = <Volume2 className="w-3.5 h-3.5 text-[#C4622D] animate-pulse" />;
-                          tooltip = "Tap to stop";
-                        } else if (isMutedState) {
-                          buttonClass += "muted bg-[#FAF7F2] text-[#7A6B55]";
-                          icon = <VolumeX className="w-3.5 h-3.5 text-[#7A6B55]" />;
-                          tooltip = "Tap to hear again";
-                        } else {
-                          buttonClass += "bg-white/60 hover:bg-white text-[#1A1208]";
-                        }
-
-                        return (
-                          <div className="flex flex-col items-center shrink-0">
-                            <button
-                              onClick={() => handleSpeakerClick(msg.id, parsed.text)}
-                              className={buttonClass}
-                              title={tooltip}
-                            >
-                              {icon}
-                            </button>
-                            {isPlaying && (
-                              <span className="text-[9px] font-mono text-[#C4622D] font-bold mt-1 tracking-wider uppercase animate-pulse">
-                                speaking
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
+                      <p className={`flex-1 ${msg.isTranscribing ? 'italic opacity-60' : ''}`}>
+                        {isUser ? msg.content : stripMarkdown(parsed.text)}
+                      </p>
+                      {!isUser && !msg.isTranscribing && (
+                        <button
+                          onClick={() => handleSpeakerClick(msg.id, parsed.text)}
+                          className={`shrink-0 p-1.5 rounded-full transition-all border border-[#1A1208]/15 ${
+                            playingMessageId === msg.id
+                              ? 'bg-[#FCEAE2] text-[#C4622D]'
+                              : 'bg-white/60 hover:bg-white text-[#1A1208]'
+                          }`}
+                          title={playingMessageId === msg.id ? 'Tap to stop' : 'Tap to hear'}
+                        >
+                          <Volume2 className={`w-3.5 h-3.5 ${playingMessageId === msg.id ? 'animate-pulse text-[#C4622D]' : ''}`} />
+                        </button>
+                      )}
                     </div>
 
                     {/* Render Interactive Action Cards */}
@@ -1002,7 +944,7 @@ export default function Chat() {
       {/* Suggestions and Input footer */}
       <footer className="bg-[#FAF7F2] border-t border-[#DDD5C5] p-4 shrink-0 space-y-3">
         {/* Suggestion Chips */}
-        {messages.length < 5 && !isTyping && (
+        {displayedMessages.length < 5 && !isTyping && (
           <div className="flex gap-2 overflow-x-auto pb-1 max-w-[100%] scrollbar-none">
             {suggestions.map((chip, idx) => (
               <button
@@ -1020,11 +962,9 @@ export default function Chat() {
         <div className="flex items-center gap-2 max-w-[800px] mx-auto w-full">
           {/* Audio Hold-to-Talk Recording Button */}
           <button
-            onMouseDown={startRecording}
-            onMouseUp={stopRecording}
-            onMouseLeave={stopRecording}
-            onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
-            onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+            onPointerDown={startRecording}
+            onPointerUp={stopRecording}
+            onPointerLeave={stopRecording}
             className={`w-12 h-12 border-2 border-[#1A1208] rounded-md flex items-center justify-center transition-all select-none ${isRecording
                 ? 'bg-[#B5271E] text-white animate-pulse scale-105 border-dashed shadow-none'
                 : 'bg-[#F2EDE4] text-[#1A1208] hover:bg-border shadow-[2px_2px_0px_#1A1208]'
@@ -1101,6 +1041,8 @@ export default function Chat() {
             : `Confirm withdrawal of ${pendingApproval?.amountCusd} cUSD`
         }
       />
+
+      </div>
     </div>
   );
 }

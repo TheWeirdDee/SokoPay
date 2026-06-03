@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getBalance } from '../services/wallet';
 import { getCachedRate } from '../services/muon';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -54,10 +55,7 @@ Here is the LIVE context of the merchant you are serving:
 - Merchant Name: ${merchant.businessName}
 - Country Code: ${merchant.country}
 - Wallet Address: ${merchant.walletAddress}
-- Current Balances:
-  * cUSD (stablecoin): ${balance.cusd} cUSD
-  * CELO: ${balance.celo} CELO
-  * Estimated Local Valuation: ${(Number(balance.cusd) * rate).toFixed(2)} ${currency}
+- Current Balance: ${balance.cusd} cUSD (≈ ${(Number(balance.cusd) * rate).toFixed(2)} ${currency})
 - Today's Sales Earnings: ${todayEarningsLocal.toFixed(2)} ${currency} (${todayEarningsCusd.toFixed(2)} cUSD)
 - Active Muon Network FX Rate: 1 cUSD = ${rate.toFixed(2)} ${currency}
 - Recent Transactions:
@@ -67,6 +65,8 @@ Guidelines:
 1. Speak concisely and directly. Merchants are busy running shops and stalls.
 2. NEVER make up or hallucinate financial details. Use the exact numbers provided in this prompt.
 3. Keep responses conversational and under 4-5 sentences unless explaining something detailed.
+3a. NEVER use markdown formatting — no asterisks, no bold (**text**), no italics, no bullet points with -, no headers with #. Write plain conversational text only. Wrong: **0.87 cUSD** Correct: 0.87 cUSD.
+3b. NEVER mention CELO balance. Merchants only care about cUSD and local currency. CELO is only an internal gas token, never visible to merchants.
 4. If the merchant asks to pay someone or transfer funds:
    - If they specify the name, amount, and recipient wallet address (which must be a valid Celo address starting with 0x), explain that you will trigger a transfer approval card for them and append the payment approval tag at the VERY end of your message.
    - Format: [PAYMENT_APPROVAL] { "recipientAddress": "0x...", "recipientName": "Name", "amountCusd": X, "notes": "..." }
@@ -176,7 +176,8 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
 
       Guidelines:
       - Use standard Pidgin English (if country is NG) or standard English/Swahili (if country is KE). 
-      - If yesterday's earnings was 0, say something motivational like: "Good morning ${merchant.businessName}! You made 0 ${currency} yesterday. Let's change that today! 💪" or similar Pidgin variant like "Body dey? You make 0 Naira yesterday. Make we change am today! Let's get that paper! 🚀".
+      - If yesterday's earnings was 0, say something motivational like: "Good morning ${merchant.businessName}! You made 0 ${currency} yesterday. Let's change that today!" or similar Pidgin variant like "Body dey? You make 0 Naira yesterday. Make we change am today! Let's get that paper!".
+      - NEVER use emojis or markdown formatting in the greeting.
       - Keep it short (1-2 sentences), natural, warm, specific and memorable. Do not sound like a generic robot.
       - Output ONLY the greeting text. Do not add any tags, headers, quotes, or JSON code formatting.`;
 
@@ -188,21 +189,25 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
       let greeting = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || `Good morning ${merchant.businessName}! Let's make some sales today!`;
       greeting = greeting.replace(/^["']|["']$/g, '');
 
-      await supabase.from('Conversation').insert({ merchantId, role: 'assistant', content: greeting });
+      await supabase.from('Conversation').insert({ id: randomUUID(), merchantId, role: 'assistant', content: greeting, createdAt: new Date().toISOString() });
 
       return res.json({ success: true, reply: greeting });
     }
 
     if (!message || message.trim() === '') return res.status(400).json({ error: 'Message content is required' });
 
-    await supabase.from('Conversation').insert({ merchantId, role: 'user', content: message.trim(), wasVoice: false });
+    const now = new Date().toISOString();
+    await supabase.from('Conversation').insert({ id: randomUUID(), merchantId, role: 'user', content: message.trim(), wasVoice: false, createdAt: now });
     const agentReply = await generateAgentCompletion(merchantId, message.trim());
-    await supabase.from('Conversation').insert({ merchantId, role: 'assistant', content: agentReply });
+    await supabase.from('Conversation').insert({ id: randomUUID(), merchantId, role: 'assistant', content: agentReply, createdAt: new Date().toISOString() });
 
     res.json({ success: true, reply: agentReply });
 
   } catch (error: any) {
-    console.error('Error in agent message handler:', error);
+    if (error?.response?.status === 429) {
+      return res.status(429).json({ error: 'AI agent is busy — Gemini rate limit reached. Wait a moment and try again.' });
+    }
+    console.error('Error in agent message handler:', error?.response?.status, error?.message);
     res.status(500).json({ error: error.message || 'AI completions failed' });
   }
 });
@@ -270,35 +275,52 @@ router.get('/speak/test', requireAuth, async (req: AuthRequest, res: Response) =
 
 router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    if (process.env.GOOGLE_TTS_ENABLED !== 'true') return res.json({ audio: null, fallback: true });
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      console.warn('[TTS] ELEVENLABS_API_KEY not set in .env');
+      return res.json({ audio: null, fallback: true });
+    }
 
-    const { text, language } = req.body;
-    if (!text || text.trim().length === 0) return res.status(400).json({ error: 'Text is required' });
+    const { text } = req.body;
+    if (!text?.trim()) return res.status(400).json({ error: 'No text' });
 
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) return res.json({ audio: null, fallback: true });
+    const speakableText = makeSpeakable(text, 'english').substring(0, 500);
 
-    const selectedLanguage = language === 'sw-KE' ? 'sw-KE' : 'en-NG';
-    const voiceName = selectedLanguage === 'en-NG' ? 'en-NG-Wavenet-A' : 'sw-KE-Standard-A';
-    const detectedLang = selectedLanguage === 'en-NG' ? 'english' : 'swahili';
-    const speakableText = makeSpeakable(text, detectedLang);
-
-    const ttsResponse = await axios.post(
-      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${key}`,
+    const response = await fetch(
+      'https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM',
       {
-        input: { text: speakableText },
-        voice: { languageCode: selectedLanguage, name: voiceName, ssmlGender: 'FEMALE' },
-        audioConfig: { audioEncoding: 'MP3', speakingRate: 0.95, pitch: 1.0, effectsProfileId: ['small-bluetooth-speaker-class-device'] }
+        method: 'POST',
+        headers: {
+          'xi-api-key': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg'
+        },
+        body: JSON.stringify({
+          text: speakableText,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            speed: 0.9
+          }
+        })
       }
     );
 
-    const audioContent = ttsResponse.data?.audioContent;
-    if (!audioContent) return res.json({ audio: null, fallback: true });
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[TTS] ElevenLabs error:', response.status, err);
+      return res.json({ audio: null, fallback: true });
+    }
 
-    res.json({ success: true, audioContent, audio: audioContent, detectedLang });
+    const audioBuffer = await response.arrayBuffer();
+    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+
+    return res.json({ success: true, audio: audioBase64, audioContent: audioBase64 });
+
   } catch (error: any) {
-    console.error('[AGENT SPEAK] Google Cloud TTS Error:', error?.response?.data?.error || error.message);
-    res.json({ audio: null, fallback: true });
+    console.error('[TTS] error:', error.message);
+    return res.json({ audio: null, fallback: true });
   }
 });
 
@@ -336,16 +358,20 @@ router.post('/voice', requireAuth, async (req: AuthRequest, res: Response) => {
     const transcript = transcriptionRes.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!transcript) return res.status(400).json({ error: 'Could not transcribe voice note. Please speak clearly.' });
 
-    await supabase.from('Conversation').insert({ merchantId, role: 'user', content: transcript, wasVoice: true });
+    await supabase.from('Conversation').insert({ id: randomUUID(), merchantId, role: 'user', content: transcript, wasVoice: true, createdAt: new Date().toISOString() });
     const agentReply = await generateAgentCompletion(merchantId, transcript);
-    await supabase.from('Conversation').insert({ merchantId, role: 'assistant', content: agentReply });
+    await supabase.from('Conversation').insert({ id: randomUUID(), merchantId, role: 'assistant', content: agentReply, createdAt: new Date().toISOString() });
 
     res.json({ success: true, transcript, reply: agentReply });
 
   } catch (error: any) {
+    if (error?.response?.status === 429) {
+      return res.status(429).json({ error: 'Agent is busy, please wait a moment and try again.' });
+    }
     console.error('Error in agent voice handler:', error);
     res.status(500).json({ error: error.message || 'Voice transcription/AI processing failed' });
   }
 });
+
 
 export { router as agentRouter };
