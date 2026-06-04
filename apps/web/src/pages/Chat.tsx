@@ -233,8 +233,15 @@ export default function Chat() {
   useEffect(() => {
     fetchAccounts();
     api.get('/agent/history')
-      .then(res => setMessages(res.data.history || []))
-      .catch(() => setError('Failed to load chat history.'));
+      .then(res => {
+        const history = res.data.history || [];
+        console.log('[Chat] Loaded history:', history.length, 'messages');
+        setMessages(history);
+      })
+      .catch((err) => {
+        console.error('[Chat] Failed to load history:', err?.response?.status, err?.message);
+        setError('Failed to load chat history.');
+      });
   }, []);
 
   useEffect(() => {

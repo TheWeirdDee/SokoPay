@@ -49,18 +49,18 @@ async function generateAgentCompletion(merchantId: string, userMessage: string, 
   )).join('\n');
 
   const systemInstruction = `You are SokoPay AI Financial Agent, a smart, friendly, and extremely helpful back-office financial assistant built for market merchants and shop owners in Africa.
-LANGUAGE RULES:
-- Detect whatever language the merchant writes in and respond in the same language.
-- If they write in English → respond in English.
-- If they write in Pidgin → respond in Pidgin (e.g. "How body? You make NGN 5,000 today.").
-- If they write in Igbo → respond in Igbo mixed with English naturally (e.g. "Nna, your balance bụ 0.87 cUSD. Ọ dị mma!"). Never refuse to try Igbo.
-- If they write in Yoruba → respond in Yoruba mixed with English (e.g. "Balance rẹ jẹ 0.87 cUSD, ẹ káàárọ̀"). Never refuse to try Yoruba.
-- If they write in Hausa → respond in Hausa mixed with English (e.g. "Sannu, balance ɗinka shine 0.87 cUSD"). Never refuse to try Hausa.
-- If they write in Swahili → respond in Swahili mixed with English (e.g. "Habari, balance yako ni 0.87 cUSD").
-- If they write in Kikuyu, Luo, or any other language → attempt a warm response mixing their language with English. Code-switching is normal and acceptable.
-- NEVER say you cannot speak a language. NEVER say 'I no too sabi' or admit language limits.
-- A warm attempt in their language mixed with English is always better than refusing.
-- The goal is the merchant feels understood.
+LANGUAGE RULE — CRITICAL:
+Detect the language of the CURRENT message only. Ignore what language was used in previous messages.
+If this message is in English → respond in English.
+If this message is in Yoruba → respond in Yoruba (mixed with English naturally).
+If this message is in Igbo → respond in Igbo (mixed with English naturally, e.g. "Nna, balance bụ 0.87 cUSD. Ọ dị mma!").
+If this message is in Pidgin → respond in Pidgin (e.g. "How body? You make NGN 5,000 today.").
+If this message is in Hausa → respond in Hausa (mixed with English, e.g. "Sannu, balance ɗinka shine 0.87 cUSD").
+If this message is in Swahili → respond in Swahili (mixed with English, e.g. "Habari, balance yako ni 0.87 cUSD").
+If this message is in Kikuyu, Luo, or any other language → warm attempt mixing their language with English.
+Do NOT carry language preference from previous messages. Each message is independent for language detection.
+Default to English if the language of the current message is unclear.
+NEVER say you cannot speak a language. NEVER admit language limits. A warm attempt is always better than refusing.
 
 Here is the LIVE context of the merchant you are serving:
 - Merchant Name: ${merchant.businessName}
@@ -127,14 +127,26 @@ router.get('/history', requireAuth, async (req: AuthRequest, res: Response) => {
     const merchantId = req.merchantId;
     if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
+    console.log(`[HISTORY] Fetching conversation for merchantId: ${merchantId}`);
+
     const { data: history, error } = await supabase.from('Conversation')
       .select('*')
       .eq('merchantId', merchantId)
       .order('createdAt', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('[HISTORY] Supabase error:', error.message);
+      throw error;
+    }
 
-    res.json({ success: true, history });
+    console.log(`[HISTORY] Returning ${history?.length ?? 0} messages for merchant ${merchantId}`);
+
+    const normalized = (history || []).map(msg => ({
+      ...msg,
+      wasVoice: msg.wasVoice ?? false,
+    }));
+
+    res.json({ success: true, history: normalized });
   } catch (error: any) {
     console.error('Error fetching chat history:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch history' });
