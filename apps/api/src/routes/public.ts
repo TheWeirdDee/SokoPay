@@ -59,7 +59,7 @@ router.get('/:linkToken', async (req: Request, res: Response) => {
 
     if (!merchant) {
       const merchants = await prisma.merchant.findMany();
-      merchant = merchants.find(m => 
+      merchant = merchants.find((m: any) =>
         m.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-') === linkToken.toLowerCase()
       ) || null;
     }
@@ -125,7 +125,7 @@ router.post('/:linkToken/pay', async (req: Request, res: Response) => {
 
       if (!merchant) {
         const merchants = await prisma.merchant.findMany();
-        merchant = merchants.find(m => 
+        merchant = merchants.find((m: any) =>
           m.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-') === linkToken.toLowerCase()
         ) || null;
       }

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import crypto from 'crypto';
+import crypto, { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { transferCusdFromMerchant, decryptPrivateKey, getBalance } from '../services/wallet';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -26,6 +26,7 @@ router.post('/request', requireAuth, async (req: AuthRequest, res: Response) => 
     const linkToken = crypto.randomBytes(8).toString('hex');
 
     const { data: paymentRequest, error: insertError } = await supabase.from('PaymentRequest').insert({
+      id: randomUUID(),
       merchantId,
       customerName: customerName || null,
       amountLocal: parseFloat(amountLocal),
@@ -33,7 +34,8 @@ router.post('/request', requireAuth, async (req: AuthRequest, res: Response) => 
       description: description || null,
       dueDate: dueDate ? new Date(dueDate).toISOString() : null,
       linkToken,
-      status: 'pending'
+      status: 'pending',
+      createdAt: new Date().toISOString()
     }).select().single();
 
     if (insertError) throw insertError;
