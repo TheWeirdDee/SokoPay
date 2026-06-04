@@ -96,82 +96,64 @@ export default function Chat() {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
 
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null); // kept for mic recording only
 
   useEffect(() => {
     return () => {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
-      }
+      window.speechSynthesis.cancel();
       setPlayingMessageId(null);
     };
   }, []);
 
-  const playTTS = async (text: string, messageId: string) => {
-    // Stop anything currently playing
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    // Clicking the same message while playing → stop
+  const speakText = (text: string, messageId: string) => {
+    window.speechSynthesis.cancel();
+
     if (playingMessageId === messageId) {
       setPlayingMessageId(null);
       return;
     }
 
-    console.log('[TTS] Speaker clicked for message:', messageId);
+    const cleanText = stripMarkdown(text)
+      .replace(/\[PAYMENT_APPROVAL\].*/s, '')
+      .replace(/\[WITHDRAW_APPROVAL\].*/s, '')
+      .replace(/0x[a-fA-F0-9]{4,}/g, 'a wallet address')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 500);
+
+    if (!cleanText) return;
+
     setPlayingMessageId(messageId);
 
-    try {
-      const cleanText = stripMarkdown(text)
-        .replace(/\[PAYMENT_APPROVAL\].*/s, '')
-        .replace(/\[WITHDRAW_APPROVAL\].*/s, '')
-        .replace(/0x[a-fA-F0-9]{4,}/g, 'a wallet address')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .substring(0, 500);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
 
-      if (!cleanText) { setPlayingMessageId(null); return; }
+    const trySpeak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v =>
+        v.lang.includes('en-GB') ||
+        v.lang.includes('en-US') ||
+        v.name.includes('Google')
+      );
+      if (preferred) utterance.voice = preferred;
+      utterance.rate = 0.9;
+      utterance.pitch = 1.0;
+      utterance.onend = () => setPlayingMessageId(null);
+      utterance.onerror = () => setPlayingMessageId(null);
+      window.speechSynthesis.speak(utterance);
+    };
 
-      console.log('[TTS] Sending to /agent/speak, text length:', cleanText.length);
-      const res = await api.post('/agent/speak', { text: cleanText });
-      console.log('[TTS] Response:', { hasAudio: !!res.data.audio, fallback: res.data.fallback, reason: res.data.reason });
-
-      if (!res.data.audio) {
-        setPlayingMessageId(null);
-        const reason = res.data.reason || 'unknown';
-        console.warn('[TTS] No audio returned. Reason:', reason);
-        if (reason === 'no_key') {
-          setError('Voice not configured — ELEVENLABS_API_KEY missing on server.');
-        } else if (reason?.startsWith('elevenlabs_')) {
-          setError(`Voice service error (${reason}). Check server logs.`);
-        }
-        return;
-      }
-
-      const binaryStr = atob(res.data.audio);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-      const audioUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
-
-      const audio = new Audio(audioUrl);
-      currentAudioRef.current = audio;
-      audio.onended = () => { setPlayingMessageId(null); URL.revokeObjectURL(audioUrl); };
-      audio.onerror = (e) => {
-        console.error('[TTS] Audio playback error:', e);
-        setPlayingMessageId(null);
-        URL.revokeObjectURL(audioUrl);
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      trySpeak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        trySpeak();
       };
-      console.log('[TTS] Playing audio...');
-      await audio.play();
-    } catch (err: any) {
-      console.error('[TTS] Exception in playTTS:', err);
-      setPlayingMessageId(null);
     }
   };
 
-  const handleSpeakerClick = (id: string, text: string) => playTTS(text, id);
+  const handleSpeakerClick = (id: string, text: string) => speakText(text, id);
 
   // Approval card action states
   const [cardStates, setCardStates] = useState<{ [msgId: string]: any }>({});
