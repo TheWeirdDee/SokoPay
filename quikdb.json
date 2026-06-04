@@ -1,7 +1,7 @@
 {
   "name": "sokopay-api",
   "runtime": "nodejs",
-  "buildCommand": "cd apps/api && npm install && npx prisma generate && npm run build",
+  "buildCommand": "apk add --no-cache openssl1.1-compat 2>/dev/null || apk add --no-cache openssl || true && cd apps/api && npm install && npx prisma generate && npm run build",
   "startCommand": "cd apps/api && npm start",
   "port": 3001
 }
