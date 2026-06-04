@@ -178,48 +178,38 @@ export async function transferCusd(toAddress: string, amountCusd: string): Promi
   const rawKey = process.env.AGENT_PRIVATE_KEY;
 
   if (!rawKey) {
-    console.error('[WALLET] AGENT_PRIVATE_KEY not in environment — falling back to mock hash');
-    const mockHash = '0x' + randomBytes(32).toString('hex');
-    console.log(`[DEVELOPMENT] Mock Tx Hash generated: ${mockHash}`);
-    return mockHash;
+    throw new Error('AGENT_PRIVATE_KEY is not configured — cannot process on-chain transfer');
   }
 
   const agentKey = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as `0x${string}`;
 
-  try {
-    const account = privateKeyToAccount(agentKey);
+  const account = privateKeyToAccount(agentKey);
 
-    const publicClient = createPublicClient({
-      chain: celo,
-      transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
-    });
+  const publicClient = createPublicClient({
+    chain: celo,
+    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+  });
 
-    const walletClient = createWalletClient({
-      account,
-      chain: celo,
-      transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
-    });
+  const walletClient = createWalletClient({
+    account,
+    chain: celo,
+    transport: http(process.env.CELO_RPC_URL || 'https://forno.celo.org')
+  });
 
-    const value = parseUnits(amountCusd, 18);
-    const hash = await walletClient.writeContract({
-      address: CUSD_ADDRESS,
-      abi: ERC20_ABI,
-      functionName: 'transfer',
-      args: [toAddress as `0x${string}`, value],
-      account,
-      chain: celo,
-      feeCurrency: CUSD_ADDRESS as `0x${string}`
-    });
+  const value = parseUnits(amountCusd, 18);
+  const hash = await walletClient.writeContract({
+    address: CUSD_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'transfer',
+    args: [toAddress as `0x${string}`, value],
+    account,
+    chain: celo,
+    feeCurrency: CUSD_ADDRESS as `0x${string}`
+  });
 
-    console.log(`[ON-CHAIN] Transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
-    await publicClient.waitForTransactionReceipt({ hash });
-    return hash;
-  } catch (error: any) {
-    console.error('[WALLET] transferCusd failed — generating mock hash:', error?.message || error);
-    const mockHash = '0x' + randomBytes(32).toString('hex');
-    console.log(`[DEVELOPMENT] Mock Tx Hash generated: ${mockHash}`);
-    return mockHash;
-  }
+  console.log(`[ON-CHAIN] Transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }
 
 export async function transferCusdFromMerchant(

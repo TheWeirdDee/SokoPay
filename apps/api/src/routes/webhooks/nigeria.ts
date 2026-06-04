@@ -42,11 +42,26 @@ router.post('/bank', async (req: Request, res: Response) => {
     // 4. Calculate cUSD amount
     const amountCusd = parseFloat(amount) / muonRate.rate;
 
-    // 5. Trigger Mento swap/delivery on-chain (transfer cUSD from operator wallet to merchant)
+    // 5. Trigger on-chain transfer (cUSD from operator wallet to merchant)
     console.log(`[WEBHOOK] Transferring ${amountCusd.toFixed(6)} cUSD to merchant address ${merchant.walletAddress}...`);
-    const txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
 
-    // 6. Log transaction to database
+    let txHash: string;
+    let txStatus: string;
+    let failureReason: string | null = null;
+
+    try {
+      txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
+      txStatus = 'confirmed';
+      console.log(`[WEBHOOK] On-chain transfer succeeded. Tx: ${txHash}`);
+    } catch (chainError: any) {
+      const reason = chainError?.shortMessage || chainError?.message || 'Unknown on-chain error';
+      console.error(`[WEBHOOK] On-chain transfer FAILED for account ${account_number}:`, reason);
+      txHash = '';
+      txStatus = 'failed';
+      failureReason = reason;
+    }
+
+    // 6. Log transaction to database (confirmed or failed)
     const transaction = await prisma.transaction.create({
       data: {
         merchantId: merchant.id,
@@ -58,16 +73,26 @@ router.post('/bank', async (req: Request, res: Response) => {
         exchangeRate: muonRate.rate,
         muonSignature: muonRate.signature,
         muonRequestId: muonRate.requestId,
-        txHash: txHash,
+        txHash: txHash || null,
         method: 'bank',
-        status: 'confirmed',
-        notes: `Providus Bank webhook. Ref: ${transaction_reference || 'N/A'}`
+        status: txStatus,
+        notes: txStatus === 'failed'
+          ? `On-chain transfer failed: ${failureReason}. Ref: ${transaction_reference || 'N/A'}`
+          : `Providus Bank webhook. Ref: ${transaction_reference || 'N/A'}`
       }
     });
 
-    console.log(`[WEBHOOK] Payment successfully processed. Transaction logged: ${transaction.id}`);
+    if (txStatus === 'failed') {
+      console.error(`[WEBHOOK] Transaction ${transaction.id} recorded as FAILED. Reason: ${failureReason}`);
+      return res.status(500).json({
+        success: false,
+        transactionId: transaction.id,
+        error: `Bank payment received but on-chain transfer failed: ${failureReason}`
+      });
+    }
 
-    res.json({ 
+    console.log(`[WEBHOOK] Payment successfully processed. Transaction logged: ${transaction.id}`);
+    res.json({
       success: true,
       transactionId: transaction.id,
       amountCusd: transaction.amountCusd,
