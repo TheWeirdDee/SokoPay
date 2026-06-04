@@ -211,7 +211,11 @@ export default function Pay() {
       }
     } catch (err: any) {
       console.error('Instant payment error:', err);
-      setInstantError(err.response?.data?.error || 'Failed to send payment.');
+      const raw = err.response?.data?.error || err.message || 'Failed to send payment.';
+      const friendly = raw.includes('fetch failed') || raw.includes('Network Error')
+        ? 'Could not reach the server. Check your connection and try again.'
+        : raw;
+      setInstantError(friendly);
     } finally {
       setInstantLoading(false);
     }

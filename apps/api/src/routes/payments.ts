@@ -127,12 +127,19 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
 
     const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
     const rateData = await getCachedRate(currency);
-    const amountCusdNum = parseFloat(amountCusd);
-    const amountLocal = amountCusdNum * rateData.rate;
 
-    console.log(`[PAYMENTS SEND] Executing instant transfer of ${amountCusd} cUSD to ${recipientAddress}`);
+    if (!rateData?.rate || rateData.rate <= 0) {
+      return res.status(500).json({ error: 'Exchange rate unavailable — please try again in a moment.' });
+    }
+
+    const amountCusdNum = parseFloat(amountCusd);
+    const amountLocal = parseFloat((amountCusdNum * rateData.rate).toFixed(2));
+
+    console.log(`[PAYMENTS SEND] Executing instant transfer of ${amountCusd} cUSD (≈ ${currency} ${amountLocal}) to ${recipientAddress}`);
     const txHash = await transferCusdFromMerchant(decryptedKey, recipientAddress, amountCusdNum.toFixed(6));
 
+    // On-chain transfer succeeded — record it. If the DB insert fails, still return
+    // success with the txHash so the user knows their money moved.
     const { data: transaction, error: txError } = await supabase.from('Transaction').insert({
       id: crypto.randomUUID(),
       merchantId,
@@ -149,9 +156,11 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
       notes: notes || 'Direct transfer payout'
     }).select().single();
 
-    if (txError) throw txError;
+    if (txError) {
+      console.error('[PAYMENTS SEND] DB insert failed after successful on-chain transfer:', txError.message, '| txHash:', txHash);
+    }
 
-    res.json({ success: true, transaction, txHash });
+    res.json({ success: true, transaction: transaction ?? null, txHash });
 
   } catch (error: any) {
     console.error('[PAYMENTS SEND] Transfer failed:', error?.shortMessage || error?.message || error);
