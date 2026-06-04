@@ -3,12 +3,20 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { privateKeyToAccount } from 'viem/accounts';
 
-const operatorAccount = privateKeyToAccount(
-  process.env.AGENT_PRIVATE_KEY as `0x${string}`
-);
-console.log('=== OPERATOR WALLET ADDRESS ===');
-console.log(operatorAccount.address);
-console.log('===============================');
+const rawAgentKey = process.env.AGENT_PRIVATE_KEY;
+if (rawAgentKey) {
+  try {
+    const agentKey = (rawAgentKey.startsWith('0x') ? rawAgentKey : `0x${rawAgentKey}`) as `0x${string}`;
+    const operatorAccount = privateKeyToAccount(agentKey);
+    console.log('=== OPERATOR WALLET ADDRESS ===');
+    console.log(operatorAccount.address);
+    console.log('===============================');
+  } catch (e) {
+    console.error('[STARTUP] AGENT_PRIVATE_KEY is set but invalid — check it is a 32-byte hex value:', (e as Error).message);
+  }
+} else {
+  console.warn('[STARTUP] AGENT_PRIVATE_KEY not set — operator wallet disabled');
+}
 
 import express from 'express';
 import cors from 'cors';
