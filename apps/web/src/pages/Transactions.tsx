@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { Banknote, Landmark, Smartphone, ArrowDownLeft, ArrowUpRight, Search, BarChart2, ChevronDown, ArrowLeft, ExternalLink, FileText } from 'lucide-react';
+import { Banknote, Landmark, Smartphone, ArrowDown, ArrowUp, Search, BarChart2, ChevronDown, ArrowLeft, ExternalLink, FileText } from 'lucide-react';
 import { useCache } from '../context/CacheContext';
 
 interface Transaction {
@@ -230,15 +230,16 @@ export default function Transactions() {
     return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const renderMethodIcon = (method: string | null, type: string) => {
+  const renderMethodIcon = (method: string | null, type: string, direction: string) => {
     if (method === 'cash') return <Banknote className="w-5 h-5 text-[#5C6B3A]" />;
     if (method === 'opay') return <Smartphone className="w-5 h-5 text-red-500" />;
     if (method === 'mpesa') return <Smartphone className="w-5 h-5 text-green-500" />;
     if (method === 'bank') return <Landmark className="w-5 h-5 text-blue-500" />;
-    return type === 'incoming' || type === 'cash' ? (
-      <ArrowDownLeft className="w-5 h-5 text-[#C4622D]" />
+    const incoming = direction === 'in' || type === 'incoming' || type === 'cash';
+    return incoming ? (
+      <ArrowDown className="w-5 h-5 text-[#5C6B3A]" />
     ) : (
-      <ArrowUpRight className="w-5 h-5 text-[#5C6B3A]" />
+      <ArrowUp className="w-5 h-5 text-[#C4622D]" />
     );
   };
 
@@ -366,7 +367,7 @@ export default function Transactions() {
               <div 
                 key={tx.id}
                 className={`bg-[#F2EDE4] border-2 border-[#1A1208] rounded-xl overflow-hidden transition-all shadow-[3px_3px_0px_#1A1208] hover:shadow-[5px_5px_0px_#1A1208] hover:-translate-x-[1px] hover:-translate-y-[1px] ${
-                  isIncoming ? 'border-l-8 border-l-[#C4622D]' : 'border-l-8 border-l-[#5C6B3A]'
+                  isIncoming ? 'border-l-8 border-l-[#5C6B3A]' : 'border-l-8 border-l-[#C4622D]'
                 }`}
               >
                 {/* Row Header */}
@@ -376,7 +377,7 @@ export default function Transactions() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full border-2 border-[#1A1208] bg-[#FAF7F2] flex items-center justify-center shadow-[1.5px_1.5px_0px_#1A1208]">
-                      {renderMethodIcon(tx.method, tx.type)}
+                      {renderMethodIcon(tx.method, tx.type, tx.direction)}
                     </div>
                     <div>
                       <p className="font-display font-black text-base">

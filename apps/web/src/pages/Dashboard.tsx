@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
-import { Banknote, Bot, ArrowDownLeft, ArrowUpRight, ExternalLink, Trophy, Database } from 'lucide-react';
+import { Banknote, Bot, ArrowDown, ArrowUp, ExternalLink, Trophy, Database } from 'lucide-react';
 import { useCache } from '../context/CacheContext';
 
 interface Transaction {
@@ -617,19 +617,19 @@ export default function Dashboard() {
                       <div 
                         key={tx.id} 
                         className={`bg-[#F2EDE4] border border-[#DDD5C5] p-3 rounded-lg flex items-center justify-between shadow-card hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all ${
-                          isIncoming ? 'border-l-4 border-l-[#C4622D]' : 'border-l-4 border-l-[#5C6B3A]'
+                          isIncoming ? 'border-l-4 border-l-[#5C6B3A]' : 'border-l-4 border-l-[#C4622D]'
                         }`}
                       >
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            isCash ? 'bg-[#5C6B3A]/10 text-[#5C6B3A]' : isIncoming ? 'bg-[#C4622D]/10 text-[#C4622D]' : 'bg-[#5C6B3A]/10 text-[#5C6B3A]'
+                            isCash ? 'bg-[#5C6B3A]/10 text-[#5C6B3A]' : isIncoming ? 'bg-[#5C6B3A]/10 text-[#5C6B3A]' : 'bg-[#C4622D]/10 text-[#C4622D]'
                           }`}>
                             {isCash ? (
                               <Banknote className="w-4 h-4" />
                             ) : isIncoming ? (
-                              <ArrowDownLeft className="w-4 h-4" />
+                              <ArrowDown className="w-4 h-4" />
                             ) : (
-                              <ArrowUpRight className="w-4 h-4" />
+                              <ArrowUp className="w-4 h-4" />
                             )}
                           </div>
                           <div>

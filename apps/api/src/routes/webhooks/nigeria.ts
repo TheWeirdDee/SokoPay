@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../../config/db';
 import { getCachedRate } from '../../services/muon';
 import { transferCusd } from '../../services/wallet';
+import { broadcastNewTransaction, broadcastStatsUpdate } from '../../services/websocket';
 
 const router = Router();
 
@@ -92,6 +93,10 @@ router.post('/bank', async (req: Request, res: Response) => {
     }
 
     console.log(`[WEBHOOK] Payment successfully processed. Transaction logged: ${transaction.id}`);
+
+    broadcastNewTransaction(transaction).catch(() => {});
+    broadcastStatsUpdate().catch(() => {});
+
     res.json({
       success: true,
       transactionId: transaction.id,

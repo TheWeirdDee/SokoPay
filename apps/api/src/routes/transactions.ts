@@ -98,9 +98,11 @@ router.post('/cash', requireAuth, async (req: AuthRequest, res: Response) => {
       notes: notes || 'Recorded Cash Sale'
     }).select().single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[CASH] Supabase insert/select error:', error.message);
+    }
 
-    res.json({ success: true, transaction });
+    res.json({ success: true, transaction: transaction ?? null });
   } catch (error: any) {
     console.error('Error recording cash transaction:', error);
     res.status(500).json({ error: error.message || 'Failed to record cash transaction' });
