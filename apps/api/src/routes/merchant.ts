@@ -53,7 +53,8 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
         lowBalanceThreshold: merchant.lowBalanceThreshold,
         dailySummaryEnabled: merchant.dailySummaryEnabled,
         weeklyReportEnabled: merchant.weeklyReportEnabled,
-        paymentAlertsEnabled: merchant.paymentAlertsEnabled
+        paymentAlertsEnabled: merchant.paymentAlertsEnabled,
+        email: merchant.email || null
       },
       bankAccount: bankAccount ? {
         accountNumber: bankAccount.accountNumber,
@@ -216,13 +217,14 @@ router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => 
     const merchantId = req.merchantId;
     if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
 
-    const { businessName, lowBalanceThreshold, dailySummaryEnabled, weeklyReportEnabled, paymentAlertsEnabled } = req.body;
+    const { businessName, lowBalanceThreshold, dailySummaryEnabled, weeklyReportEnabled, paymentAlertsEnabled, email } = req.body;
     const updateData: any = {};
     if (businessName !== undefined && businessName.trim() !== '') updateData.businessName = businessName.trim();
     if (lowBalanceThreshold !== undefined && !isNaN(parseFloat(lowBalanceThreshold))) updateData.lowBalanceThreshold = parseFloat(lowBalanceThreshold);
     if (dailySummaryEnabled !== undefined) updateData.dailySummaryEnabled = !!dailySummaryEnabled;
     if (weeklyReportEnabled !== undefined) updateData.weeklyReportEnabled = !!weeklyReportEnabled;
     if (paymentAlertsEnabled !== undefined) updateData.paymentAlertsEnabled = !!paymentAlertsEnabled;
+    if (email !== undefined) updateData.email = email?.trim() || null;
 
     const { data: updated, error } = await supabase.from('Merchant').update(updateData).eq('id', merchantId).select().single();
     if (error) throw error;
@@ -232,7 +234,8 @@ router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => 
       merchant: {
         id: updated.id, phone: updated.phone, businessName: updated.businessName, country: updated.country,
         walletAddress: updated.walletAddress, isVerified: updated.isVerified, lowBalanceThreshold: updated.lowBalanceThreshold,
-        dailySummaryEnabled: updated.dailySummaryEnabled, weeklyReportEnabled: updated.weeklyReportEnabled, paymentAlertsEnabled: updated.paymentAlertsEnabled
+        dailySummaryEnabled: updated.dailySummaryEnabled, weeklyReportEnabled: updated.weeklyReportEnabled,
+        paymentAlertsEnabled: updated.paymentAlertsEnabled, email: updated.email || null
       }
     });
   } catch (error: any) {

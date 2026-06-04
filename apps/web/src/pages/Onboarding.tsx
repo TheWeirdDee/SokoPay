@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -21,11 +21,17 @@ export default function Onboarding() {
   const [otp, setOtp] = useState('');
   const [businessName, setBusinessName] = useState('');
   
+  // Step 3: Business Setup State
+  const [email, setEmail] = useState('');
+
   // Step 3.5: Password State
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Forgot Password State
+  const [forgotEmail, setForgotEmail] = useState('');
 
   // Step 3.6: PIN State
   const [paymentPin, setPaymentPin] = useState('');
@@ -39,8 +45,22 @@ export default function Onboarding() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [resendCountdown, setResendCountdown] = useState(60);
 
   const navigate = useNavigate();
+
+  // Start 60s resend countdown whenever OTP screen is shown
+  useEffect(() => {
+    if (step !== 2) return;
+    setResendCountdown(60);
+    const interval = setInterval(() => {
+      setResendCountdown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [step]);
 
   // Combine dial code and local phone, removing non-digits
   const getFullPhone = () => {
@@ -92,7 +112,8 @@ export default function Onboarding() {
         businessName,
         country: selectedCountry.code,
         password,
-        paymentPin
+        paymentPin,
+        email: email.trim() || undefined
       });
       
       if (res.data.requiresPassword) {
@@ -148,9 +169,11 @@ export default function Onboarding() {
 
   // Password requirements checks
   const isMinLength = password.length >= 8;
-  const hasNumber = /\d/.test(password);
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[!@#$%^&*]/.test(password);
   const passwordsMatch = password === confirmPassword && password !== '';
-  const isPasswordValid = isMinLength && hasNumber && passwordsMatch;
+  const isPasswordValid = isMinLength && hasUppercase && hasNumber && hasSpecial && passwordsMatch;
 
   const handleSetupPassword = (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,22 +329,48 @@ export default function Onboarding() {
         {step === 2 && (
           <form onSubmit={handleVerifyOTP} className="space-y-6">
             <h2 className="font-display font-black text-2xl text-[#1A1208]">Verify OTP</h2>
-            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">We sent a 6-digit verification code to {selectedCountry.dialCode} {localPhone}</p>
-            <Input
-              label="OTP Code"
-              placeholder="123456"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value)}
-              required
-            />
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">Enter the 6-digit verification code for {selectedCountry.dialCode} {localPhone}</p>
+
+            <div className="space-y-2">
+              <Input
+                label="OTP Code"
+                placeholder="123456"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                required
+              />
+              <p className="text-[12px] text-[#7A6B55]">Demo mode: use code 123456</p>
+            </div>
+
             <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Verify Code</Button>
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="text-xs font-bold text-[#C4622D] w-full text-center hover:underline"
-            >
-              Wrong phone number?
-            </button>
+
+            <div className="flex flex-col gap-3 text-center">
+              {resendCountdown > 0 ? (
+                <p className="text-xs text-[#7A6B55]">Resend code in {resendCountdown}s</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setResendCountdown(60)}
+                  className="text-xs font-bold text-[#C4622D] hover:underline"
+                >
+                  Resend code
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setStep(5)}
+                className="text-xs font-bold text-[#7A6B55] hover:underline"
+              >
+                Sign in with password instead
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="text-xs text-[#7A6B55] hover:underline"
+              >
+                Wrong phone number?
+              </button>
+            </div>
           </form>
         )}
 
@@ -340,6 +389,17 @@ export default function Onboarding() {
               onChange={(e) => setBusinessName(e.target.value)}
               required
             />
+
+            <div>
+              <Input
+                label="Recovery Email (optional)"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <p className="text-[11px] text-[#7A6B55] mt-1">Used only for password and PIN reset</p>
+            </div>
 
             <Button type="submit" className="w-full text-base py-3">Continue</Button>
           </form>
@@ -397,15 +457,23 @@ export default function Onboarding() {
             <div className="bg-[#FAF7F2] p-4 rounded-xl border border-[#DDD5C5] space-y-2 text-xs font-bold text-[#7A6B55]">
               <div className="flex items-center gap-2">
                 {isMinLength ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
-                <span>At least 8 characters long</span>
+                <span className={isMinLength ? 'text-green-700' : ''}>At least 8 characters</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasUppercase ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
+                <span className={hasUppercase ? 'text-green-700' : ''}>One uppercase letter (A-Z)</span>
               </div>
               <div className="flex items-center gap-2">
                 {hasNumber ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
-                <span>At least one number</span>
+                <span className={hasNumber ? 'text-green-700' : ''}>One number (0-9)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasSpecial ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
+                <span className={hasSpecial ? 'text-green-700' : ''}>One special character (!@#$%^&*)</span>
               </div>
               <div className="flex items-center gap-2">
                 {passwordsMatch ? <Check className="w-4 h-4 text-green-700" /> : <X className="w-4 h-4 text-red-700" />}
-                <span>Passwords match</span>
+                <span className={passwordsMatch ? 'text-green-700' : ''}>Passwords match</span>
               </div>
             </div>
 
@@ -480,12 +548,19 @@ export default function Onboarding() {
             </div>
 
             <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Login</Button>
-            
+
             <div className="flex flex-col gap-3 text-center pt-2">
               <button
                 type="button"
-                onClick={handleRequestOTPFallback}
+                onClick={() => { setError(''); setStep(7); }}
                 className="text-xs font-bold text-[#C4622D] hover:underline"
+              >
+                Forgot password?
+              </button>
+              <button
+                type="button"
+                onClick={handleRequestOTPFallback}
+                className="text-xs font-bold text-[#7A6B55] hover:underline"
               >
                 Log in with OTP instead
               </button>
@@ -498,6 +573,58 @@ export default function Onboarding() {
               </button>
             </div>
           </form>
+        )}
+
+        {/* STEP 7: Forgot Password — enter email */}
+        {step === 7 && (
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            setError('');
+            setIsLoading(true);
+            try {
+              await api.post('/auth/forgot-password', { phone: getFullPhone() });
+              setStep(8);
+            } catch (err: any) {
+              setError(err.response?.data?.error || 'Failed to send reset email');
+            } finally {
+              setIsLoading(false);
+            }
+          }} className="space-y-6">
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Reset Password</h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+              We'll send a reset link to the recovery email linked to your account.
+            </p>
+            <div>
+              <Input
+                label="Recovery Email"
+                type="email"
+                placeholder="you@example.com"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                required
+              />
+              <p className="text-[11px] text-[#7A6B55] mt-1">Must match the email saved on your account</p>
+            </div>
+            <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Send Reset Link</Button>
+            <button type="button" onClick={() => { setError(''); setStep(5); }}
+              className="text-xs text-[#7A6B55] w-full text-center hover:underline">
+              Back to login
+            </button>
+          </form>
+        )}
+
+        {/* STEP 8: Forgot Password — email sent */}
+        {step === 8 && (
+          <div className="text-center py-6 space-y-6">
+            <div className="w-16 h-16 bg-[#5C6B3A]/15 rounded-full flex items-center justify-center mx-auto text-3xl border-2 border-[#1A1208]">
+              ✉️
+            </div>
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">Check your email</h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+              A password reset link has been sent to your recovery email. It expires in 1 hour.
+            </p>
+            <Button onClick={() => setStep(5)} className="w-full py-3 text-base">Back to Login</Button>
+          </div>
         )}
 
         {/* STEP 6: OTP Login Password Challenge */}

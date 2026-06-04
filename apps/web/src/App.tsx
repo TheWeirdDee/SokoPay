@@ -11,6 +11,7 @@ import QR from './pages/QR';
 import Analytics from './pages/Analytics';
 import Layout from './components/Layout';
 import PublicPayment from './pages/PublicPayment';
+import ResetPassword from './pages/ResetPassword';
 import { CacheProvider } from './context/CacheContext';
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/p/:linkToken" element={<PublicPayment />} />
           
           {/* Protected layout wrapped routes */}

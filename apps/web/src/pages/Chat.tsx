@@ -120,6 +120,7 @@ export default function Chat() {
       return;
     }
 
+    console.log('[TTS] Speaker clicked for message:', messageId);
     setPlayingMessageId(messageId);
 
     try {
@@ -133,9 +134,21 @@ export default function Chat() {
 
       if (!cleanText) { setPlayingMessageId(null); return; }
 
+      console.log('[TTS] Sending to /agent/speak, text length:', cleanText.length);
       const res = await api.post('/agent/speak', { text: cleanText });
+      console.log('[TTS] Response:', { hasAudio: !!res.data.audio, fallback: res.data.fallback, reason: res.data.reason });
 
-      if (!res.data.audio) { setPlayingMessageId(null); return; }
+      if (!res.data.audio) {
+        setPlayingMessageId(null);
+        const reason = res.data.reason || 'unknown';
+        console.warn('[TTS] No audio returned. Reason:', reason);
+        if (reason === 'no_key') {
+          setError('Voice not configured — ELEVENLABS_API_KEY missing on server.');
+        } else if (reason?.startsWith('elevenlabs_')) {
+          setError(`Voice service error (${reason}). Check server logs.`);
+        }
+        return;
+      }
 
       const binaryStr = atob(res.data.audio);
       const bytes = new Uint8Array(binaryStr.length);
@@ -145,9 +158,15 @@ export default function Chat() {
       const audio = new Audio(audioUrl);
       currentAudioRef.current = audio;
       audio.onended = () => { setPlayingMessageId(null); URL.revokeObjectURL(audioUrl); };
-      audio.onerror = () => { setPlayingMessageId(null); URL.revokeObjectURL(audioUrl); };
+      audio.onerror = (e) => {
+        console.error('[TTS] Audio playback error:', e);
+        setPlayingMessageId(null);
+        URL.revokeObjectURL(audioUrl);
+      };
+      console.log('[TTS] Playing audio...');
       await audio.play();
-    } catch {
+    } catch (err: any) {
+      console.error('[TTS] Exception in playTTS:', err);
       setPlayingMessageId(null);
     }
   };

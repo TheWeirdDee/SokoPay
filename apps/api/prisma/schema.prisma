@@ -17,9 +17,12 @@ model Merchant {
   encryptedPrivateKey   String
   isVerified            Boolean   @default(false)
   selfAgentId           String?
+  email                 String?
   passwordHash          String?
   paymentPasswordHash   String?
   paymentPinHash        String?
+  passwordResetToken    String?
+  passwordResetExpiry   DateTime?
   lowBalanceThreshold   Float     @default(5)
   creditNotificationSent Boolean  @default(false)
   dailySummaryEnabled   Boolean   @default(true)

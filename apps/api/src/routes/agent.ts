@@ -49,7 +49,18 @@ async function generateAgentCompletion(merchantId: string, userMessage: string, 
   )).join('\n');
 
   const systemInstruction = `You are SokoPay AI Financial Agent, a smart, friendly, and extremely helpful back-office financial assistant built for market merchants and shop owners in Africa.
-You communicate in standard English, Nigerian Pidgin English (e.g. "How body? You make NGN 5,000 today."), and Swahili depending on the dialect or language the merchant uses. Always respond using the same language/dialect as the merchant. If they speak Pidgin, speak Pidgin back. If they speak Swahili, speak Swahili.
+LANGUAGE RULES:
+- Detect whatever language the merchant writes in and respond in the same language.
+- If they write in English → respond in English.
+- If they write in Pidgin → respond in Pidgin (e.g. "How body? You make NGN 5,000 today.").
+- If they write in Igbo → respond in Igbo mixed with English naturally (e.g. "Nna, your balance bụ 0.87 cUSD. Ọ dị mma!"). Never refuse to try Igbo.
+- If they write in Yoruba → respond in Yoruba mixed with English (e.g. "Balance rẹ jẹ 0.87 cUSD, ẹ káàárọ̀"). Never refuse to try Yoruba.
+- If they write in Hausa → respond in Hausa mixed with English (e.g. "Sannu, balance ɗinka shine 0.87 cUSD"). Never refuse to try Hausa.
+- If they write in Swahili → respond in Swahili mixed with English (e.g. "Habari, balance yako ni 0.87 cUSD").
+- If they write in Kikuyu, Luo, or any other language → attempt a warm response mixing their language with English. Code-switching is normal and acceptable.
+- NEVER say you cannot speak a language. NEVER say 'I no too sabi' or admit language limits.
+- A warm attempt in their language mixed with English is always better than refusing.
+- The goal is the merchant feels understood.
 
 Here is the LIVE context of the merchant you are serving:
 - Merchant Name: ${merchant.businessName}
@@ -276,16 +287,20 @@ router.get('/speak/test', requireAuth, async (req: AuthRequest, res: Response) =
 router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const apiKey = process.env.ELEVENLABS_API_KEY;
+    console.log('[TTS] ElevenLabs key:', apiKey ? `EXISTS (${apiKey.slice(0, 8)}...)` : 'MISSING');
+
     if (!apiKey) {
-      console.warn('[TTS] ELEVENLABS_API_KEY not set in .env');
-      return res.json({ audio: null, fallback: true });
+      console.warn('[TTS] ELEVENLABS_API_KEY not set in .env — TTS disabled');
+      return res.json({ audio: null, fallback: true, reason: 'no_key' });
     }
 
     const { text } = req.body;
     if (!text?.trim()) return res.status(400).json({ error: 'No text' });
 
     const speakableText = makeSpeakable(text, 'english').substring(0, 500);
+    console.log('[TTS] Speaking text length:', speakableText.length, 'chars');
 
+    // eleven_turbo_v2_5 works on all ElevenLabs plans including free tier
     const response = await fetch(
       'https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM',
       {
@@ -297,7 +312,7 @@ router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
         },
         body: JSON.stringify({
           text: speakableText,
-          model_id: 'eleven_multilingual_v2',
+          model_id: 'eleven_turbo_v2_5',
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.75,
@@ -307,20 +322,23 @@ router.post('/speak', requireAuth, async (req: AuthRequest, res: Response) => {
       }
     );
 
+    console.log('[TTS] ElevenLabs response status:', response.status);
+
     if (!response.ok) {
       const err = await response.text();
-      console.error('[TTS] ElevenLabs error:', response.status, err);
-      return res.json({ audio: null, fallback: true });
+      console.error('[TTS] ElevenLabs error body:', err);
+      return res.json({ audio: null, fallback: true, reason: `elevenlabs_${response.status}`, detail: err });
     }
 
     const audioBuffer = await response.arrayBuffer();
     const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+    console.log('[TTS] Audio generated, size:', audioBuffer.byteLength, 'bytes');
 
-    return res.json({ success: true, audio: audioBase64, audioContent: audioBase64 });
+    return res.json({ success: true, audio: audioBase64 });
 
   } catch (error: any) {
-    console.error('[TTS] error:', error.message);
-    return res.json({ audio: null, fallback: true });
+    console.error('[TTS] Unexpected error:', error.message);
+    return res.json({ audio: null, fallback: true, reason: 'exception' });
   }
 });
 
