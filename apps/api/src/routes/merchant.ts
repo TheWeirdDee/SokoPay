@@ -18,14 +18,16 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Merchant not found' });
     }
 
-    let { data: bankAccount } = await supabase.from('PaymentAccount')
+    let { data: bankAccount, error: bankFetchError } = await supabase.from('PaymentAccount')
       .select('*')
       .eq('merchantId', merchantId)
       .eq('type', 'bank')
       .limit(1)
       .maybeSingle();
 
-    if (!bankAccount) {
+    if (bankFetchError) console.error('GET /merchant/me PaymentAccount fetch error:', bankFetchError.message);
+
+    if (!bankAccount && !bankFetchError) {
       const randomAcc = '99' + Math.floor(10000000 + Math.random() * 90000000).toString();
       const { data: newBankAcc, error: insertError } = await supabase.from('PaymentAccount').insert({
         merchantId,
@@ -35,9 +37,9 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
         bankCode: '101',
         isDefault: true
       }).select().single();
-      
-      if (insertError) throw insertError;
-      bankAccount = newBankAcc;
+
+      if (insertError) console.error('GET /merchant/me PaymentAccount insert error:', insertError.message);
+      else bankAccount = newBankAcc;
     }
 
     return res.json({
