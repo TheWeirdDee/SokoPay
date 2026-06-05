@@ -46,6 +46,7 @@ export default function Onboarding() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [resendCountdown, setResendCountdown] = useState(60);
+  const [isNewUser, setIsNewUser] = useState(false);
 
   const navigate = useNavigate();
 
@@ -78,14 +79,15 @@ export default function Onboarding() {
       const { exists, hasPassword } = check.data;
 
       if (!exists) {
-        // New user: send OTP then go to signup
+        setIsNewUser(true);
         await api.post('/auth/request-otp', { phone, forceOtp: true });
         setStep(2);
       } else if (hasPassword) {
-        // Returning user with password: show password login
+        setIsNewUser(false);
         setStep(5);
       } else {
-        // Returning user without password: send OTP
+        // exists but no password — go to OTP, not password screen
+        setIsNewUser(false);
         await api.post('/auth/request-otp', { phone, forceOtp: true });
         setStep(2);
       }
@@ -342,8 +344,14 @@ export default function Onboarding() {
         {/* STEP 2: Verify OTP Code */}
         {step === 2 && (
           <form onSubmit={handleVerifyOTP} className="space-y-6">
-            <h2 className="font-display font-black text-2xl text-[#1A1208]">Verify OTP</h2>
-            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">Enter the 6-digit verification code for {selectedCountry.dialCode} {localPhone}</p>
+            <h2 className="font-display font-black text-2xl text-[#1A1208]">
+              {isNewUser ? 'Create your account' : 'Welcome back'}
+            </h2>
+            <p className="text-xs text-[#7A6B55] leading-relaxed font-semibold">
+              {isNewUser
+                ? `Enter the code we sent to ${selectedCountry.dialCode} ${localPhone} to get started.`
+                : `Enter the code we sent to ${selectedCountry.dialCode} ${localPhone} to log in.`}
+            </p>
 
             <div className="space-y-2">
               <Input
@@ -353,7 +361,7 @@ export default function Onboarding() {
                 onChange={(e) => setOtp(e.target.value)}
                 required
               />
-              <p className="text-[12px] text-[#7A6B55]">Demo mode: use code 123456</p>
+              <p className="text-[12px] text-[#C4622D] font-semibold">Demo mode: use code 123456</p>
             </div>
 
             <Button type="submit" isLoading={isLoading} className="w-full text-base py-3">Verify Code</Button>
@@ -370,13 +378,15 @@ export default function Onboarding() {
                   Resend code
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setStep(5)}
-                className="text-xs font-bold text-[#7A6B55] hover:underline"
-              >
-                Sign in with password instead
-              </button>
+              {!isNewUser && (
+                <button
+                  type="button"
+                  onClick={() => setStep(5)}
+                  className="text-xs font-bold text-[#7A6B55] hover:underline"
+                >
+                  Sign in with password instead
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setStep(1)}
