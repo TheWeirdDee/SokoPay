@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 
 const router = Router();
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 async function generateAgentCompletion(merchantId: string, userMessage: string, historyOffset = 15): Promise<string> {
   const { data: merchant, error } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
@@ -230,8 +230,9 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
     if (error?.response?.status === 429) {
       return res.status(429).json({ error: 'AI agent is busy — Gemini rate limit reached. Wait a moment and try again.' });
     }
-    console.error('Error in agent message handler:', error?.response?.status, error?.message);
-    res.status(500).json({ error: error.message || 'AI completions failed' });
+    const geminiErr = error?.response?.data?.error;
+    console.error('[AGENT MESSAGE] 500 error:', error?.response?.status, geminiErr?.message || error?.message);
+    res.status(500).json({ error: geminiErr?.message || error.message || 'AI completions failed' });
   }
 });
 
