@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getBalance } from '../services/wallet';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     if (!bankAccount && !bankFetchError) {
       const randomAcc = '99' + Math.floor(10000000 + Math.random() * 90000000).toString();
       const { data: newBankAcc, error: insertError } = await supabase.from('PaymentAccount').insert({
+        id: randomUUID(),
         merchantId,
         type: 'bank',
         accountNumber: randomAcc,
@@ -153,28 +155,31 @@ router.get('/qr', requireAuth, async (req: AuthRequest, res: Response) => {
     if (bankErr) console.error('[QR] bank fetch error:', bankErr.message);
     if (!bankAccount && merchant.country === 'NG') {
       const randomAcc = '99' + Math.floor(10000000 + Math.random() * 90000000).toString();
-      const { data: newBank } = await supabase.from('PaymentAccount').insert({
-        merchantId, type: 'bank', accountNumber: randomAcc, bankName: 'Providus Bank', bankCode: '101', isDefault: true
+      const { data: newBank, error: bankInsertErr } = await supabase.from('PaymentAccount').insert({
+        id: randomUUID(), merchantId, type: 'bank', accountNumber: randomAcc, bankName: 'Providus Bank', bankCode: '101', isDefault: true
       }).select().single();
-      bankAccount = newBank;
+      if (bankInsertErr) console.error('[QR] bank insert error:', bankInsertErr.message);
+      else bankAccount = newBank;
     }
 
     let { data: opayAccount } = await supabase.from('PaymentAccount').select('*').eq('merchantId', merchantId).eq('type', 'opay').maybeSingle();
     if (!opayAccount && merchant.country === 'NG') {
       const opayNumber = merchant.phone.replace('+', '');
-      const { data: newOpay } = await supabase.from('PaymentAccount').insert({
-        merchantId, type: 'opay', accountNumber: opayNumber, isDefault: false
+      const { data: newOpay, error: opayInsertErr } = await supabase.from('PaymentAccount').insert({
+        id: randomUUID(), merchantId, type: 'opay', accountNumber: opayNumber, isDefault: false
       }).select().single();
-      opayAccount = newOpay;
+      if (opayInsertErr) console.error('[QR] opay insert error:', opayInsertErr.message);
+      else opayAccount = newOpay;
     }
 
     let { data: mpesaAccount } = await supabase.from('PaymentAccount').select('*').eq('merchantId', merchantId).eq('type', 'mpesa').maybeSingle();
     if (!mpesaAccount && merchant.country === 'KE') {
       const tillNumber = Math.floor(100000 + Math.random() * 900000).toString();
-      const { data: newMpesa } = await supabase.from('PaymentAccount').insert({
-        merchantId, type: 'mpesa', mpesaTill: tillNumber, isDefault: true
+      const { data: newMpesa, error: mpesaInsertErr } = await supabase.from('PaymentAccount').insert({
+        id: randomUUID(), merchantId, type: 'mpesa', mpesaTill: tillNumber, isDefault: true
       }).select().single();
-      mpesaAccount = newMpesa;
+      if (mpesaInsertErr) console.error('[QR] mpesa insert error:', mpesaInsertErr.message);
+      else mpesaAccount = newMpesa;
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
