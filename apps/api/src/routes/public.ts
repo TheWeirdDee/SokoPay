@@ -166,7 +166,15 @@ router.post('/:linkToken/pay', async (req: Request, res: Response) => {
     const amountCusd = finalAmountLocal / rate.rate;
 
     console.log(`[PUBLIC PAY] Swapping ${finalAmountLocal} ${currency} to ${amountCusd.toFixed(6)} cUSD`);
-    const txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
+    let txHash: string;
+    try {
+      txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
+      console.log('[SIMULATE] Transfer success:', txHash);
+    } catch (transferError: any) {
+      console.error('[SIMULATE] Transfer failed:', transferError.message);
+      console.error('[SIMULATE] Stack:', transferError.stack);
+      throw transferError;
+    }
 
     const transaction = await prisma.transaction.create({
       data: {
