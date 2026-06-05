@@ -31,7 +31,10 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
       .order('createdAt', { ascending: false })
       .range(skip, skip + limit - 1);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[TRANSACTIONS] Supabase query error:', error.message);
+      throw error;
+    }
 
     const totalTransactions = count || 0;
     const totalPages = Math.ceil(totalTransactions / limit);
