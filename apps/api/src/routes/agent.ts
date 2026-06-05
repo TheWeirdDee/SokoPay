@@ -101,7 +101,7 @@ Guidelines:
 
   contents.push({
     role: 'user',
-    parts: [{ text: userMessage }]
+    parts: [{ text: `[LANGUAGE INSTRUCTION: The message below is your ONLY source for language detection. Respond in the exact same language as THIS message — do not use the language from any previous messages in this conversation.]\n${userMessage}` }]
   });
 
   const response = await axios.post(

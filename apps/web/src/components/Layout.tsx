@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 
+function SokoLogoMark() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
+      <path d="M 75 24 H 48 C 34 24 24 34 24 48 H 40" stroke="#FAF7F2" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M 25 76 H 52 C 66 76 76 66 76 52 H 60" stroke="#C4622D" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -62,7 +71,10 @@ export default function Layout() {
       {/* Left Sidebar (Desktop Only) */}
       <aside className="hidden md:flex flex-col w-[260px] bg-bg-dark text-text-light border-r-2 border-border min-h-screen fixed top-0 left-0 z-40">
         <div className="p-6 border-b border-border/20 h-16 flex items-center">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-text-light">SokoPay</h1>
+          <button onClick={() => navigate('/')} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <SokoLogoMark />
+            <h1 className="font-display text-2xl font-bold tracking-tight text-text-light">SokoPay</h1>
+          </button>
         </div>
         
         <nav className="flex-1 p-4 space-y-1 mt-4 overflow-y-auto">

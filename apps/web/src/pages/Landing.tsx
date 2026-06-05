@@ -1530,8 +1530,7 @@ export default function Landing() {
         @media (max-width: 991px) {
           .hero {
             grid-template-columns: 1fr;
-            padding-top: 120px;
-            padding-bottom: 0px;
+            padding: 120px 32px 40px;
             gap: 40px;
             text-align: center;
           }
@@ -1551,14 +1550,14 @@ export default function Landing() {
           }
           .hero-features-bar-absolute {
             margin-top: 10px;
-            padding: 12px 48px;
+            padding: 12px 32px;
             border-top: 1.5px solid rgba(221, 213, 197, 0.15);
             border-bottom: none;
             border-left: none;
             border-right: none;
             border-radius: 0;
-            margin-left: -48px;
-            margin-right: -48px;
+            margin-left: -32px;
+            margin-right: -32px;
             background: rgba(26, 18, 8, 0.85);
           }
           .flex-bar {
@@ -1608,6 +1607,19 @@ export default function Landing() {
           .landing-nav { padding: 16px 24px; }
           .nav-links { display: none; }
           section { padding: 80px 24px; }
+          .hero {
+            padding: 100px 24px 40px;
+            min-height: auto;
+          }
+          .hero-headline {
+            font-size: clamp(32px, 9vw, 52px);
+            letter-spacing: -1.5px;
+          }
+          .hero-sub { font-size: 15px; }
+          .hero-features-bar-absolute {
+            margin-left: -24px !important;
+            margin-right: -24px !important;
+          }
           .features-grid { grid-template-columns: 1fr; }
           .stats-grid { grid-template-columns: 1fr 1fr; }
           .countries-inner { grid-template-columns: 1fr !important; }
