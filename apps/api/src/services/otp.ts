@@ -1,6 +1,8 @@
 import { supabase } from '../config/supabase';
 
-const USE_MOCK_OTP = process.env.USE_MOCK_OTP === 'true';
+const USE_MOCK_OTP = process.env.USE_MOCK_OTP?.toLowerCase() === 'true';
+console.log('[OTP] USE_MOCK_OTP value:', process.env.USE_MOCK_OTP);
+console.log('[OTP] Mock enabled:', USE_MOCK_OTP);
 
 export async function sendOTP(phone: string): Promise<string> {
   if (USE_MOCK_OTP) {
