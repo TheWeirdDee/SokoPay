@@ -128,6 +128,8 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
         isVerified: false,
         selfAgentId: null,
         lowBalanceThreshold: 5,
+        dailySummaryEnabled: true,
+        paymentAlertsEnabled: true,
         createdAt: new Date().toISOString()
       });
       if (insertError) {
