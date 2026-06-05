@@ -10,6 +10,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
     if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    console.log('[TRANSACTIONS] Fetching for merchant:', merchantId);
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;

@@ -51,9 +51,7 @@ export default function Onboarding() {
   const navigate = useNavigate();
 
   const clearMerchantCache = () => {
-    localStorage.removeItem('sokopay_qr_details');
-    localStorage.removeItem('sokopay_cached_txs');
-    localStorage.removeItem('sokopay_cached_stats');
+    localStorage.clear();
   };
 
   // Start 60s resend countdown whenever OTP screen is shown
