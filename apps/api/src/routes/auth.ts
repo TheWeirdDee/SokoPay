@@ -130,6 +130,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       const legacyPaymentHash = finalPin ? hashString(finalPin) : null;
 
       const { data: newMerchant, error } = await supabase.from('Merchant').insert({
+        id: crypto.randomUUID(),
         phone, businessName, country, walletAddress: address, encryptedPrivateKey,
         passwordHash, paymentPinHash, paymentPasswordHash: legacyPaymentHash,
         email: email?.trim() || null
