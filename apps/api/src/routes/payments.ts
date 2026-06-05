@@ -87,18 +87,6 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
     const { data: merchant, error: merchantError } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
     if (merchantError || !merchant) return res.status(404).json({ error: 'Merchant not found' });
 
-    if (merchant.paymentPinHash || merchant.paymentPasswordHash) {
-      const pin = paymentPassword || req.body.pin || req.body.paymentPin;
-      if (!pin) return res.status(400).json({ error: 'Payment PIN is required' });
-      let pinMatch = false;
-      if (merchant.paymentPinHash && merchant.paymentPinHash.startsWith('$2')) {
-        pinMatch = await bcrypt.compare(pin, merchant.paymentPinHash);
-      } else if (merchant.paymentPasswordHash) {
-        const hashed = crypto.createHash('sha256').update(pin).digest('hex');
-        pinMatch = merchant.paymentPasswordHash === hashed;
-      }
-      if (!pinMatch) return res.status(400).json({ error: 'Incorrect payment PIN' });
-    }
 
     // Derive the ACTUAL signing address from the private key so the balance
     // check uses the same account that will sign the transaction.

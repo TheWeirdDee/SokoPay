@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 
 const router = Router();
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 
 async function generateAgentCompletion(merchantId: string, userMessage: string, historyOffset = 15): Promise<string> {
   const { data: merchant, error } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
@@ -94,7 +94,7 @@ Guidelines:
     .order('createdAt', { ascending: true })
     .limit(historyOffset);
 
-  const contents = (dbHistory || []).map(msg => ({
+  const contents = (dbHistory || []).slice(-10).map(msg => ({
     role: msg.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: msg.content }]
   }));
@@ -104,15 +104,27 @@ Guidelines:
     parts: [{ text: `[LANGUAGE INSTRUCTION: The message below is your ONLY source for language detection. Respond in the exact same language as THIS message — do not use the language from any previous messages in this conversation.]\n${userMessage}` }]
   });
 
-  const response = await axios.post(
-    `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
-    {
-      contents,
-      systemInstruction: {
-        parts: [{ text: systemInstruction }]
+  let response: any;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await axios.post(
+        `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
+        {
+          contents,
+          systemInstruction: {
+            parts: [{ text: systemInstruction }]
+          }
+        }
+      );
+      break;
+    } catch (err: any) {
+      if (attempt < 2 && (err?.response?.status === 503 || err?.response?.status === 429)) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
       }
+      throw err;
     }
-  );
+  }
 
   const candidate = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!candidate) {

@@ -28,7 +28,9 @@ interface PreviewData {
 
 export default function Withdraw() {
   const navigate = useNavigate();
-  const { profile: merchant, balance, withdrawalAccounts: accounts, fetchAccounts, updateBalance, loadingAccounts } = useCache();
+  const { profile: merchant, balance, withdrawalAccounts: accounts, fetchAccounts, updateBalance, loadingAccounts, rate: cachedRate } = useCache();
+  const currency = merchant?.country === 'KE' ? 'KES' : 'NGN';
+  const currentRate = cachedRate ?? 0;
 
   // Link Account Form State
   const [showAddForm, setShowAddForm] = useState(false);
@@ -82,16 +84,18 @@ export default function Withdraw() {
 
   // Fetch FX preview when amount changes
   useEffect(() => {
-    const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const amountLocal = parseFloat(withdrawAmount);
+    if (isNaN(amountLocal) || amountLocal <= 0 || !currentRate) {
       setPreview(null);
       return;
     }
 
+    const amountCusd = amountLocal / currentRate;
+
     const delayDebounceFn = setTimeout(async () => {
       setLoadingPreview(true);
       try {
-        const response = await api.get(`/withdraw/preview?amountCusd=${amount}`);
+        const response = await api.get(`/withdraw/preview?amountCusd=${amountCusd}`);
         setPreview(response.data);
       } catch (err) {
         console.error('Failed to load preview:', err);
@@ -101,7 +105,7 @@ export default function Withdraw() {
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [withdrawAmount]);
+  }, [withdrawAmount, currentRate]);
 
   const handleLinkAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,13 +173,14 @@ export default function Withdraw() {
       return;
     }
 
-    const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const amountLocal = parseFloat(withdrawAmount);
+    if (isNaN(amountLocal) || amountLocal <= 0) {
       setExecError('Please enter a valid amount.');
       return;
     }
 
-    if (!balance || amount > parseFloat(balance.cusd)) {
+    const amountCusd = currentRate > 0 ? amountLocal / currentRate : 0;
+    if (!balance || amountCusd > parseFloat(balance.cusd)) {
       setExecError('Insufficient balance to complete withdrawal.');
       return;
     }
@@ -184,11 +189,11 @@ export default function Withdraw() {
   };
 
   const executeWithdrawal = async (verifiedPin: string) => {
-    const amount = parseFloat(withdrawAmount);
+    const amountCusd = parseFloat(withdrawAmount) / currentRate;
     setExecLoading(true);
     try {
       const response = await api.post('/withdraw/execute', {
-        amountCusd: amount,
+        amountCusd,
         withdrawalAccountId: selectedAccountId,
         paymentPassword: verifiedPin
       });
@@ -309,15 +314,20 @@ export default function Withdraw() {
             {/* Amount Input */}
             <div className="relative">
               <Input
-                label="Amount to Withdraw (cUSD)"
+                label={`Amount to Withdraw (${currency})`}
                 type="number"
                 step="any"
-                placeholder="0.00"
+                placeholder="e.g. 5000"
                 value={withdrawAmount}
                 onChange={(e) => setWithdrawAmount(e.target.value)}
                 required
               />
-              <span className="absolute right-3 bottom-3 text-xs font-bold text-text-muted">cUSD</span>
+              <span className="absolute right-3 bottom-3 text-xs font-bold text-text-muted">{currency}</span>
+              {withdrawAmount && currentRate > 0 && (
+                <p className="mt-1 text-xs text-text-muted">
+                  ≈ {(parseFloat(withdrawAmount) / currentRate).toFixed(4)} cUSD at current rate
+                </p>
+              )}
             </div>
 
             {/* Conversion Preview Box */}
@@ -519,7 +529,7 @@ export default function Withdraw() {
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
         onSuccess={executeWithdrawal}
-        description={`Confirm withdrawal of ${withdrawAmount} cUSD to your linked account`}
+        description={`Confirm withdrawal of ${currency} ${withdrawAmount} (≈ ${currentRate > 0 ? (parseFloat(withdrawAmount || '0') / currentRate).toFixed(4) : '0'} cUSD) to your linked account`}
       />
     </div>
   );

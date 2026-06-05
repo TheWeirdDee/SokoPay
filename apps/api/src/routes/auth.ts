@@ -128,9 +128,6 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
         isVerified: false,
         selfAgentId: null,
         lowBalanceThreshold: 5,
-        creditNotificationsEnabled: true,
-        paymentNotificationsEnabled: true,
-        weeklyReportEnabled: true,
         createdAt: new Date().toISOString()
       });
       if (insertError) {
