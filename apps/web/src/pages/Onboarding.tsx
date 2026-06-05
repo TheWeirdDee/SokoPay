@@ -73,16 +73,24 @@ export default function Onboarding() {
     setError('');
     setIsLoading(true);
     try {
-      const res = await api.post('/auth/request-otp', { phone: getFullPhone(), forceOtp: false });
-      if (res.data.exists) {
-        // User exists, prompt for login password
+      const phone = getFullPhone();
+      const check = await api.get(`/auth/check-phone?phone=${phone}`);
+      const { exists, hasPassword } = check.data;
+
+      if (!exists) {
+        // New user: send OTP then go to signup
+        await api.post('/auth/request-otp', { phone, forceOtp: true });
+        setStep(2);
+      } else if (hasPassword) {
+        // Returning user with password: show password login
         setStep(5);
       } else {
-        // User does not exist, send OTP
+        // Returning user without password: send OTP
+        await api.post('/auth/request-otp', { phone, forceOtp: true });
         setStep(2);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to send OTP');
+      setError(err.response?.data?.error || 'Failed to continue. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -270,10 +278,16 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center px-6 py-12 bg-[#FAF7F2]">
-      <div className="mb-8 text-center">
-        <h1 className="font-display text-4xl font-black text-[#1A1208] mb-2 tracking-tight">SokoPay</h1>
-        <p className="text-[#7A6B55] font-semibold">Your AI Financial Back-Office</p>
+    <div className="min-h-screen flex flex-col justify-center px-6 py-12 bg-[#1A1208]">
+      <div className="mb-8 text-center flex flex-col items-center">
+        <div className="flex items-center gap-3 mb-2">
+          <svg width="40" height="40" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M 75 24 H 48 C 34 24 24 34 24 48 H 40" stroke="#FAF7F2" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M 25 76 H 52 C 66 76 76 66 76 52 H 60" stroke="#C4622D" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <h1 className="font-display text-4xl font-black text-[#FAF7F2] tracking-tight">SokoPay</h1>
+        </div>
+        <p className="text-[#DDD5C5] font-semibold">Your AI Financial Back-Office</p>
       </div>
 
       <div className="bg-[#F2EDE4] p-8 rounded-2xl shadow-card border-2 border-[#1A1208] max-w-md mx-auto w-full relative">

@@ -1,6 +1,18 @@
 import { supabase } from '../config/supabase';
 
+const USE_MOCK_OTP = process.env.USE_MOCK_OTP === 'true';
+
 export async function sendOTP(phone: string): Promise<string> {
+  if (USE_MOCK_OTP) {
+    await supabase.from('OTPStore').upsert({
+      phone,
+      otp: '123456',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    });
+    console.log(`[OTP] Mock OTP for ${phone}: 123456`);
+    return '123456';
+  }
+
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
   await supabase.from('OTPStore').upsert({
@@ -9,9 +21,7 @@ export async function sendOTP(phone: string): Promise<string> {
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
   });
 
-  // TODO: Swap in Termii SMS call here once sender ID is approved
-  console.log(`[OTP] DEV — code for ${phone}: ${otp}`);
-
+  console.log(`[OTP] Code for ${phone}: ${otp}`);
   return otp;
 }
 

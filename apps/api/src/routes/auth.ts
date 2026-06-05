@@ -20,6 +20,26 @@ function hashString(val: string) {
   return crypto.createHash('sha256').update(val).digest('hex');
 }
 
+router.get('/check-phone', async (req: Request, res: Response) => {
+  try {
+    const phone = req.query.phone as string;
+    if (!phone) return res.status(400).json({ error: 'Phone is required' });
+
+    const { data } = await supabase
+      .from('Merchant')
+      .select('id, businessName, passwordHash')
+      .eq('phone', phone)
+      .maybeSingle();
+
+    return res.json({
+      exists: !!data,
+      hasPassword: !!data?.passwordHash
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to check phone' });
+  }
+});
+
 router.post('/request-otp', async (req: Request, res: Response) => {
   try {
     const { phone, forceOtp } = req.body;
