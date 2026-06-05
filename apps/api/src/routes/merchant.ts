@@ -145,10 +145,12 @@ router.get('/qr', requireAuth, async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
     }
 
+    console.log('[QR] Fetching for merchant:', merchantId);
     const { data: merchant, error } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
     if (error || !merchant) return res.status(404).json({ error: 'Merchant not found' });
 
-    let { data: bankAccount } = await supabase.from('PaymentAccount').select('*').eq('merchantId', merchantId).eq('type', 'bank').maybeSingle();
+    let { data: bankAccount, error: bankErr } = await supabase.from('PaymentAccount').select('*').eq('merchantId', merchantId).eq('type', 'bank').maybeSingle();
+    if (bankErr) console.error('[QR] bank fetch error:', bankErr.message);
     if (!bankAccount && merchant.country === 'NG') {
       const randomAcc = '99' + Math.floor(10000000 + Math.random() * 90000000).toString();
       const { data: newBank } = await supabase.from('PaymentAccount').insert({
