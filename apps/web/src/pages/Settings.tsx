@@ -252,7 +252,10 @@ export default function Settings() {
     finally { setPwLoading(false); }
   };
 
-  const handleSignOut = () => { localStorage.removeItem('sokopay_token'); navigate('/'); };
+  const handleSignOut = () => {
+    ['sokopay_token', 'sokopay_qr_details', 'sokopay_cached_txs', 'sokopay_cached_stats'].forEach(k => localStorage.removeItem(k));
+    navigate('/');
+  };
 
   if (isLoading) return (
     <div className="min-h-screen bg-[#FAF7F2] flex items-center justify-center">

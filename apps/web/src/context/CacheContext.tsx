@@ -51,6 +51,11 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
     setTodayEarnings(null);
     setRate(null);
     hasFetchedProfile.current = false;
+    lastFetchAccountsTime.current = 0;
+    lastFetchTransactionsTime.current = 0;
+    localStorage.removeItem('sokopay_qr_details');
+    localStorage.removeItem('sokopay_cached_txs');
+    localStorage.removeItem('sokopay_cached_stats');
     if (balanceIntervalRef.current) {
       clearInterval(balanceIntervalRef.current);
       balanceIntervalRef.current = null;

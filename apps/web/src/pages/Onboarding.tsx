@@ -50,6 +50,12 @@ export default function Onboarding() {
 
   const navigate = useNavigate();
 
+  const clearMerchantCache = () => {
+    localStorage.removeItem('sokopay_qr_details');
+    localStorage.removeItem('sokopay_cached_txs');
+    localStorage.removeItem('sokopay_cached_stats');
+  };
+
   // Start 60s resend countdown whenever OTP screen is shown
   useEffect(() => {
     if (step !== 2) return;
@@ -126,6 +132,7 @@ export default function Onboarding() {
         email: email.trim() || undefined
       });
       
+      clearMerchantCache();
       localStorage.setItem('sokopay_token', res.data.token);
       navigate('/dashboard');
     } catch (err: any) {
@@ -149,6 +156,7 @@ export default function Onboarding() {
         otp,
         password: otpLoginPassword
       });
+      clearMerchantCache();
       localStorage.setItem('sokopay_token', res.data.token);
       navigate('/dashboard');
     } catch (err: any) {
@@ -207,6 +215,7 @@ export default function Onboarding() {
         phone: getFullPhone(),
         password: loginPassword
       });
+      clearMerchantCache();
       localStorage.setItem('sokopay_token', res.data.token);
       navigate('/dashboard');
     } catch (err: any) {
