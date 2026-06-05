@@ -3,7 +3,7 @@ import { supabase } from '../config/supabase';
 import { sendOTP, verifyOTP } from '../services/otp';
 import { generateMerchantWallet } from '../services/wallet';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+import crypto, { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { Resend } from 'resend';
 import { requireAuth, AuthRequest } from '../middleware/auth';
@@ -117,7 +117,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       const { address, encryptedPrivateKey } = generateMerchantWallet();
       const defaultPin = await bcrypt.hash('0000', 10);
 
-      const newId = crypto.randomUUID();
+      const newId = randomUUID();
       const { error: insertError } = await supabase.from('Merchant').insert({
         id: newId,
         phone, businessName, country, walletAddress: address, encryptedPrivateKey,
