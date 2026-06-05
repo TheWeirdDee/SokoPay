@@ -1608,9 +1608,10 @@ export default function Landing() {
           .nav-links { display: none; }
           section { padding: 80px 24px; }
           .hero {
-            padding: 100px 24px 40px;
+            padding: 100px 24px 0;
             min-height: auto;
           }
+          .hero-visual-right { display: none; }
           .hero-headline {
             font-size: clamp(32px, 9vw, 52px);
             letter-spacing: -1.5px;

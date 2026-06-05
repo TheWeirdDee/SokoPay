@@ -96,7 +96,6 @@ export default function Chat() {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
 
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null); // kept for mic recording only
 
   useEffect(() => {
     return () => {
