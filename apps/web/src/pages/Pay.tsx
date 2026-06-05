@@ -130,7 +130,7 @@ export default function Pay() {
     setResolvedBusinessName('');
   }, [instantAddress]);
 
-  const handleInstantSendSubmit = (e: React.FormEvent) => {
+  const handleInstantSendSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setInstantError('');
     setInstantSuccess('');
