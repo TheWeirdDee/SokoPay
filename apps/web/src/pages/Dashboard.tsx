@@ -373,7 +373,13 @@ export default function Dashboard() {
       {/* Header */}
       <header className="bg-[#FAF7F2] px-6 py-4 flex justify-between items-center border-b border-[#DDD5C5] h-16 w-full">
         <div className="max-w-[1200px] mx-auto w-full flex justify-between items-center">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-[#1A1208]">SokoPay</h1>
+          <div className="flex items-center gap-2 md:hidden">
+            <svg width="26" height="26" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M 75 24 H 48 C 34 24 24 34 24 48 H 40" stroke="#1A1208" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M 25 76 H 52 C 66 76 76 66 76 52 H 60" stroke="#C4622D" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <h1 className="font-display text-2xl font-bold tracking-tight text-[#1A1208]">SokoPay</h1>
+          </div>
           <div className="flex items-center gap-4">
             {/* Bell Icon */}
             <button className="p-2 text-[#1A1208] hover:text-[#C4622D] transition-colors relative" aria-label="Notifications">
