@@ -129,13 +129,23 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       const paymentPinHash = finalPin ? await bcrypt.hash(finalPin, 10) : null;
       const legacyPaymentHash = finalPin ? hashString(finalPin) : null;
 
-      const { data: newMerchant, error } = await supabase.from('Merchant').insert({
-        id: crypto.randomUUID(),
+      const newId = crypto.randomUUID();
+      const { error: insertError } = await supabase.from('Merchant').insert({
+        id: newId,
         phone, businessName, country, walletAddress: address, encryptedPrivateKey,
         passwordHash, paymentPinHash, paymentPasswordHash: legacyPaymentHash,
-        email: email?.trim() || null
-      }).select().single();
-      if (error) throw error;
+        email: email?.trim() || null,
+        createdAt: new Date().toISOString()
+      });
+      if (insertError) {
+        console.error('[VERIFY-OTP] Merchant insert error:', insertError.message, insertError.details, insertError.hint);
+        throw insertError;
+      }
+      const { data: newMerchant, error: fetchError } = await supabase.from('Merchant').select('*').eq('id', newId).single();
+      if (fetchError || !newMerchant) {
+        console.error('[VERIFY-OTP] Merchant fetch after insert failed:', fetchError?.message);
+        throw new Error('Merchant created but could not be retrieved');
+      }
       merchant = newMerchant;
     }
 
@@ -148,9 +158,10 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
         id: merchant.id, businessName: merchant.businessName, walletAddress: merchant.walletAddress, country: merchant.country
       }
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to verify OTP' });
+  } catch (error: any) {
+    const msg = error?.message || 'Failed to verify OTP';
+    console.error('[VERIFY-OTP] 500 error:', msg, error?.details || '');
+    res.status(500).json({ error: msg });
   }
 });
 
