@@ -159,19 +159,14 @@ router.post('/:linkToken/pay', async (req: Request, res: Response) => {
       });
     }
 
+    console.log(`[PUBLIC PAY] Processing mainnet token transfer. Amount: ${finalAmountLocal} ${merchant.country === 'KE' ? 'KES' : 'NGN'}`);
+
     const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
     const rate = await getCachedRate(currency);
     const amountCusd = finalAmountLocal / rate.rate;
 
-    let txHash: string;
-    if (simulate) {
-      // Demo/simulate mode: record transaction without real on-chain transfer
-      txHash = '0x' + require('crypto').randomBytes(32).toString('hex');
-      console.log(`[PUBLIC PAY] Simulated payment. Mock txHash: ${txHash}`);
-    } else {
-      console.log(`[PUBLIC PAY] Processing mainnet token transfer. ${finalAmountLocal} ${currency} → ${amountCusd.toFixed(6)} cUSD`);
-      txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
-    }
+    console.log(`[PUBLIC PAY] Swapping ${finalAmountLocal} ${currency} to ${amountCusd.toFixed(6)} cUSD`);
+    const txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
 
     const transaction = await prisma.transaction.create({
       data: {
