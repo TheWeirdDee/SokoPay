@@ -204,6 +204,7 @@ export async function transferCusd(toAddress: string, amountCusd: string): Promi
     args: [toAddress as `0x${string}`, value],
     account,
     chain: celo,
+    gas: BigInt(100000),
     feeCurrency: CUSD_ADDRESS as `0x${string}`
   });
 
