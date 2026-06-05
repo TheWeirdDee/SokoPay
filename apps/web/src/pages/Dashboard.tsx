@@ -179,8 +179,12 @@ export default function Dashboard() {
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        reconnectDelay = 1500; // reset on success
-        stopFallbackPoll();    // WebSocket is up — stop polling
+        reconnectDelay = 1500;
+        stopFallbackPoll();
+        const token = localStorage.getItem('sokopay_token') || localStorage.getItem('token');
+        if (token) {
+          ws!.send(JSON.stringify({ type: 'AUTH', token }));
+        }
       };
 
       ws.onmessage = (event) => {
