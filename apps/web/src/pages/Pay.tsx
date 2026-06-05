@@ -169,8 +169,8 @@ export default function Pay() {
       return;
     }
 
-    // Open PIN Modal to challenge the action
-    setIsPinModalOpen(true);
+    // Demo mode: skip PIN modal, use default PIN
+    await executeInstantSend('0000');
   };
 
   const executeInstantSend = async (verifiedPin: string) => {

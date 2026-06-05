@@ -111,30 +111,26 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
     let { data: merchant } = await supabase.from('Merchant').select('*').eq('phone', phone).maybeSingle();
 
     if (merchant) {
-      if (merchant.passwordHash && !password) return res.json({ success: true, exists: true, requiresPassword: true });
-      if (merchant.passwordHash && password) {
-        let passwordMatch = false;
-        if (merchant.passwordHash.startsWith('$2')) {
-          passwordMatch = await bcrypt.compare(password, merchant.passwordHash);
-        } else {
-          passwordMatch = merchant.passwordHash === hashString(password);
-        }
-        if (!passwordMatch) return res.status(400).json({ error: 'Incorrect password' });
-      }
+      // Demo mode: OTP alone is sufficient to log in
     } else {
       if (!businessName || !country) return res.status(400).json({ error: 'businessName and country required for signup' });
       const { address, encryptedPrivateKey } = generateMerchantWallet();
-      const passwordHash = password ? await bcrypt.hash(password, 10) : null;
-      const finalPin = paymentPin || paymentPassword;
-      const paymentPinHash = finalPin ? await bcrypt.hash(finalPin, 10) : null;
-      const legacyPaymentHash = finalPin ? hashString(finalPin) : null;
+      const defaultPin = await bcrypt.hash('0000', 10);
 
       const newId = crypto.randomUUID();
       const { error: insertError } = await supabase.from('Merchant').insert({
         id: newId,
         phone, businessName, country, walletAddress: address, encryptedPrivateKey,
-        passwordHash, paymentPinHash, paymentPasswordHash: legacyPaymentHash,
+        passwordHash: null,
+        paymentPinHash: defaultPin,
+        paymentPasswordHash: null,
         email: email?.trim() || null,
+        isVerified: false,
+        selfAgentId: null,
+        lowBalanceThreshold: 5,
+        creditNotificationsEnabled: true,
+        paymentNotificationsEnabled: true,
+        weeklyReportEnabled: true,
         createdAt: new Date().toISOString()
       });
       if (insertError) {

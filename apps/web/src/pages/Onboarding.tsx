@@ -126,17 +126,8 @@ export default function Onboarding() {
         email: email.trim() || undefined
       });
       
-      if (res.data.requiresPassword) {
-        // Existing user logging in via OTP, need to prompt for password
-        setStep(6);
-      } else {
-        localStorage.setItem('sokopay_token', res.data.token);
-        if (step === 3.6) {
-          setStep(4);
-        } else {
-          navigate('/dashboard');
-        }
-      }
+      localStorage.setItem('sokopay_token', res.data.token);
+      navigate('/dashboard');
     } catch (err: any) {
       if (err.response?.data?.error === 'businessName and country required for signup') {
         setStep(3);
@@ -167,14 +158,14 @@ export default function Onboarding() {
     }
   };
 
-  const handleSetupBusinessName = (e: React.FormEvent) => {
+  const handleSetupBusinessName = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!businessName.trim()) {
       setError('Business Name is required');
       return;
     }
     setError('');
-    setStep(3.5);
+    await handleVerifyOTP(e);
   };
 
   // Password requirements checks
