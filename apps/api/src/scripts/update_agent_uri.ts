@@ -45,14 +45,17 @@ const metadata = {
   type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
   active: true,
   version: '1.0.0',
+  x402support: true,
   tags: ['payments', 'celo', 'africa', 'ngn', 'kes', 'cusd', 'merchant', 'x402'],
   services: [
     {
       name: 'web',
+      version: '1.0.0',
       endpoint: 'https://sokopay.vercel.app'
     },
     {
       name: 'api',
+      version: '1.0.0',
       endpoint: 'https://sokopay.quikdb.net'
     }
   ],
