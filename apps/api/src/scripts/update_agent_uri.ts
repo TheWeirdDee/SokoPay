@@ -41,36 +41,35 @@ const REGISTRY_ABI = [
 const metadata = {
   name: 'SokoPay',
   description: 'AI-powered payment agent for African merchants on Celo blockchain. Enables cUSD payments, multi-currency support (NGN/KES), real-time transaction tracking, and automated financial summaries.',
+  image: 'https://sokopay.vercel.app/logo.svg',
+  type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+  active: true,
   version: '1.0.0',
-  type: 'payment',
-  role: 'server',
-  capabilities: [
-    'send_payment',
-    'receive_payment',
-    'check_balance',
-    'transaction_history',
-    'payment_requests',
-    'scheduled_payments',
-    'financial_ai_assistant'
-  ],
+  tags: ['payments', 'celo', 'africa', 'ngn', 'kes', 'cusd', 'merchant', 'x402'],
   services: [
     {
-      type: 'web',
-      url: 'https://sokopay.vercel.app',
-      description: 'SokoPay merchant web app'
+      name: 'web',
+      endpoint: 'https://sokopay.vercel.app'
     },
     {
-      type: 'api',
-      url: 'https://sokopay.quikdb.net',
-      description: 'SokoPay agent API'
+      name: 'api',
+      endpoint: 'https://sokopay.quikdb.net'
     }
   ],
   registrations: [
     {
       agentId: Number(AGENT_ID),
-      agentRegistry: REGISTRY_ADDRESS,
-      chain: 'celo'
+      agentRegistry: `eip155:42220:${REGISTRY_ADDRESS}`
     }
+  ],
+  capabilities: {
+    streaming: false,
+    pushNotifications: false,
+    x402: true
+  },
+  supportedTrust: [
+    'reputation',
+    'crypto-economic'
   ]
 };
 
