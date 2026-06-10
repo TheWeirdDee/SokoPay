@@ -73,6 +73,7 @@ export default function Dashboard() {
   const [cashError, setCashError] = useState('');
 
   const [stats, setStats] = useState({ count: 0, totalVolumeLocal: 0 });
+  const [weeklyEarnings, setWeeklyEarnings] = useState<{ day: string; amount: number; isToday: boolean }[]>([]);
   const [secondsSinceUpdate, setSecondsSinceUpdate] = useState(0);
 
   const fetchStats = async () => {
@@ -80,6 +81,9 @@ export default function Dashboard() {
       const res = await api.get('/merchant/stats');
       if (res.data.success && res.data.stats) {
         setStats(res.data.stats);
+        if (Array.isArray(res.data.weeklyEarnings)) {
+          setWeeklyEarnings(res.data.weeklyEarnings);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch live-activity stats:', err);
@@ -375,17 +379,20 @@ export default function Dashboard() {
       ? `You made ${todayEarningsDisplay} today. Tap to ask me anything about your earnings!`
       : `No sales recorded yet today. Tap to ask your AI agent for tips on growing your business!`;
 
-  // 7 days: Sunday to Saturday
-  // Terracotta bars for filled ones, transparent-white for empty ones
-  const weekData = [
-    { day: 'S', amount: 12000, height: '30%', isFilled: true },
-    { day: 'M', amount: 28000, height: '60%', isFilled: true },
-    { day: 'T', amount: 47200, height: '90%', isFilled: true }, // Today
-    { day: 'W', amount: 0, height: '0%', isFilled: false },
-    { day: 'T', amount: 0, height: '0%', isFilled: false },
-    { day: 'F', amount: 0, height: '0%', isFilled: false },
-    { day: 'S', amount: 0, height: '0%', isFilled: false }
-  ];
+  // Rolling last 7 days of real inflow (oldest first, today last), from /merchant/stats.
+  // Bar heights are normalized to the busiest day; empty days render as a faint track.
+  const maxWeekAmount = weeklyEarnings.reduce((m, d) => Math.max(m, d.amount), 0);
+  const weekData = (weeklyEarnings.length === 7
+    ? weeklyEarnings
+    : Array.from({ length: 7 }, (_, i) => ({ day: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i], amount: 0, isToday: i === 6 }))
+  ).map(d => ({
+    day: d.day,
+    amount: d.amount,
+    height: d.amount > 0 && maxWeekAmount > 0
+      ? `${Math.max(8, Math.round((d.amount / maxWeekAmount) * 100))}%`
+      : '0%',
+    isFilled: d.amount > 0,
+  }));
 
   return (
     <div className="min-h-screen bg-[#FAF7F2] flex flex-col font-body text-[#1A1208] w-full relative">

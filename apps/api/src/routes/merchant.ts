@@ -150,7 +150,35 @@ router.get('/stats', requireAuth, async (req: AuthRequest, res: Response) => {
     const merchantId = req.merchantId;
     if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
     const stats = await getTransactionStats(merchantId);
-    res.json({ success: true, stats });
+
+    // Build a rolling 7-day inflow breakdown (oldest first, today last) for the dashboard chart
+    const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    const days: { start: number; end: number; day: string; isToday: boolean; amount: number }[] = [];
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    for (let i = 6; i >= 0; i--) {
+      const start = new Date(todayMidnight);
+      start.setDate(start.getDate() - i);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      days.push({ start: start.getTime(), end: end.getTime(), day: dayLabels[start.getDay()], isToday: i === 0, amount: 0 });
+    }
+
+    const { data: weekTxs } = await supabase.from('Transaction')
+      .select('amountLocal, createdAt')
+      .eq('merchantId', merchantId)
+      .eq('direction', 'in')
+      .gte('createdAt', new Date(days[0].start).toISOString());
+
+    for (const tx of weekTxs || []) {
+      const t = new Date(tx.createdAt).getTime();
+      const bucket = days.find(d => t >= d.start && t < d.end);
+      if (bucket) bucket.amount += tx.amountLocal || 0;
+    }
+
+    const weeklyEarnings = days.map(d => ({ day: d.day, amount: Math.round(d.amount), isToday: d.isToday }));
+
+    res.json({ success: true, stats, weeklyEarnings });
   } catch (error: any) {
     console.error('GET /merchant/stats error:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch stats' });
