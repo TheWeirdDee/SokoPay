@@ -52,6 +52,10 @@ app.use('/transactions', transactionsRouter);
 app.use('/agent', agentRouter);
 app.use('/withdraw', withdrawRouter);
 
+app.get('/', (req, res) => {
+  res.status(200).json({ name: 'SokoPay API', version: '1.0.0', status: 'ok' });
+});
+
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });

@@ -55,30 +55,23 @@ const metadata = {
   ],
   services: [
     {
-      id: 'payment-api',
-      type: 'https',
-      url: 'https://sokopay.quikdb.net',
-      description: 'SokoPay REST API for payment operations'
+      type: 'web',
+      url: 'https://sokopay.vercel.app',
+      description: 'SokoPay merchant web app'
     },
     {
-      id: 'agent-mcp',
-      type: 'mcp',
-      url: 'https://sokopay.quikdb.net/agent',
-      description: 'SokoPay AI financial assistant endpoint'
+      type: 'api',
+      url: 'https://sokopay.quikdb.net',
+      description: 'SokoPay agent API'
     }
   ],
   registrations: [
     {
-      type: 'erc8004',
-      chainId: 42220,
-      registry: REGISTRY_ADDRESS,
-      agentId: Number(AGENT_ID)
+      agentId: Number(AGENT_ID),
+      agentRegistry: REGISTRY_ADDRESS,
+      chain: 'celo'
     }
-  ],
-  network: {
-    chainId: 42220,
-    name: 'Celo Mainnet'
-  }
+  ]
 };
 
 async function main() {

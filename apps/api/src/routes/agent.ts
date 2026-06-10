@@ -8,6 +8,10 @@ import { randomUUID } from 'crypto';
 
 const router = Router();
 
+router.get('/', (req, res) => {
+  res.status(200).json({ name: 'SokoPay AI Agent', version: '1.0.0', status: 'ok' });
+});
+
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 
 async function generateAgentCompletion(merchantId: string, userMessage: string, historyOffset = 15): Promise<string> {
