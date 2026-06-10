@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Check, X, Shield, Lock, Landmark } from 'lucide-react';
+import { useCache } from '../context/CacheContext';
 
 const COUNTRIES = [
   { code: 'NG', dialCode: '+234', name: 'Nigeria' },
@@ -49,8 +50,10 @@ export default function Onboarding() {
   const [isNewUser, setIsNewUser] = useState(false);
 
   const navigate = useNavigate();
+  const { clearCache } = useCache();
 
   const clearMerchantCache = () => {
+    clearCache(); // reset in-memory cached state (profile/balance/txs) from any previous session
     localStorage.clear();
   };
 

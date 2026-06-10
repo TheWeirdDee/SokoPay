@@ -2,9 +2,12 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getBalance } from '../services/wallet';
+import { getTransactionStats } from '../services/websocket';
 import { randomUUID } from 'crypto';
 
 const router = Router();
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -140,6 +143,20 @@ router.get('/balance', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// REST fallback for live-activity stats (WebSocket delivers the same payload,
+// but this lets the dashboard show real numbers even when the WS is unavailable).
+router.get('/stats', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+    const stats = await getTransactionStats(merchantId);
+    res.json({ success: true, stats });
+  } catch (error: any) {
+    console.error('GET /merchant/stats error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch stats' });
+  }
+});
+
 router.get('/qr', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
@@ -233,7 +250,27 @@ router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => 
     if (dailySummaryEnabled !== undefined) updateData.dailySummaryEnabled = !!dailySummaryEnabled;
     if (weeklyReportEnabled !== undefined) updateData.weeklyReportEnabled = !!weeklyReportEnabled;
     if (paymentAlertsEnabled !== undefined) updateData.paymentAlertsEnabled = !!paymentAlertsEnabled;
-    if (email !== undefined) updateData.email = email?.trim() || null;
+    if (email !== undefined) {
+      const trimmed = email?.trim() || '';
+      if (trimmed === '') {
+        updateData.email = null;
+      } else {
+        if (!EMAIL_REGEX.test(trimmed)) {
+          return res.status(400).json({ error: 'Please enter a valid email address.' });
+        }
+        const normalized = trimmed.toLowerCase();
+        const { data: existing } = await supabase
+          .from('Merchant')
+          .select('id')
+          .ilike('email', normalized)
+          .neq('id', merchantId)
+          .maybeSingle();
+        if (existing) {
+          return res.status(409).json({ error: 'This email is already linked to another SokoPay account.' });
+        }
+        updateData.email = normalized;
+      }
+    }
 
     const { data: updated, error } = await supabase.from('Merchant').update(updateData).eq('id', merchantId).select().single();
     if (error) throw error;
@@ -256,30 +293,36 @@ router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => 
 router.get('/by-phone/:phone', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const rawPhone = decodeURIComponent(req.params.phone).replace(/[\s\-]/g, '');
+    const digits = rawPhone.replace(/\D/g, ''); // strip + and any stray symbols
 
-    // Build lookup candidates covering all common formats
-    const candidates: string[] = [rawPhone];
-    if (rawPhone.startsWith('+')) {
-      // E.164 → also try local 0... format
-      if (rawPhone.startsWith('+234')) candidates.push('0' + rawPhone.slice(4));
-      if (rawPhone.startsWith('+254')) candidates.push('0' + rawPhone.slice(4));
-    } else {
-      candidates.push('+' + rawPhone);
-      if (rawPhone.startsWith('0')) {
-        candidates.push('+234' + rawPhone.slice(1)); // 080... → +23480...
-        candidates.push('+254' + rawPhone.slice(1)); // 071... → +25471...
-      }
+    // Build lookup candidates covering all common stored formats.
+    // NOTE: signup stores phone as digits-only E.164 with no '+' (e.g. "2349047208891"),
+    // so every form below is generated both with and without the leading '+'.
+    const candidates = new Set<string>();
+    const add = (v: string) => { if (v && v.length >= 7) { candidates.add(v); candidates.add('+' + v); } };
+
+    add(rawPhone.replace('+', ''));
+    add(digits);
+
+    // Local 0... → country-code E.164 (NG/KE)
+    if (digits.startsWith('0')) {
+      add('234' + digits.slice(1)); // 080... → 23480...
+      add('254' + digits.slice(1)); // 071... → 25471...
     }
+    // Country-code E.164 → local 0...
+    if (digits.startsWith('234')) add('0' + digits.slice(3));
+    if (digits.startsWith('254')) add('0' + digits.slice(3));
 
-    console.log('[by-phone] Searching candidates:', candidates);
+    console.log('[by-phone] Searching candidates:', [...candidates]);
 
-    const { data: merchant, error } = await supabase
+    const { data: matches, error } = await supabase
       .from('Merchant')
       .select('id, businessName, walletAddress, phone')
-      .in('phone', candidates)
-      .maybeSingle();
+      .in('phone', [...candidates]);
 
     if (error) throw error;
+
+    const merchant = matches && matches.length > 0 ? matches[0] : null;
 
     if (!merchant) {
       return res.status(404).json({ success: false, error: 'No SokoPay merchant found with this phone number' });

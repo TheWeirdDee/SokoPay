@@ -70,7 +70,7 @@ export async function broadcastStatsUpdate() {
   });
 }
 
-async function getTransactionStats(merchantId: string) {
+export async function getTransactionStats(merchantId: string) {
   try {
     const { count, error: countError } = await supabase
       .from('Transaction')

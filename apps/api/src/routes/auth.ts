@@ -13,6 +13,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(.{8,})$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const pinLockouts = new Map<string, { attempts: number; lockedUntil: number }>();
 
@@ -114,6 +115,26 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       // Demo mode: OTP alone is sufficient to log in
     } else {
       if (!businessName || !country) return res.status(400).json({ error: 'businessName and country required for signup' });
+
+      // Validate + de-duplicate the recovery email (optional field)
+      let normalizedEmail: string | null = null;
+      const trimmedEmail = email?.trim() || '';
+      if (trimmedEmail !== '') {
+        if (!EMAIL_REGEX.test(trimmedEmail)) {
+          return res.status(400).json({ error: 'Please enter a valid email address.' });
+        }
+        const lowered = trimmedEmail.toLowerCase();
+        const { data: emailOwner } = await supabase
+          .from('Merchant')
+          .select('id')
+          .ilike('email', lowered)
+          .maybeSingle();
+        if (emailOwner) {
+          return res.status(409).json({ error: 'This email is already linked to another SokoPay account.' });
+        }
+        normalizedEmail = lowered;
+      }
+
       const { address, encryptedPrivateKey } = generateMerchantWallet();
       const defaultPin = await bcrypt.hash('0000', 10);
 
@@ -124,7 +145,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
         passwordHash: null,
         paymentPinHash: defaultPin,
         paymentPasswordHash: null,
-        email: email?.trim() || null,
+        email: normalizedEmail,
         isVerified: false,
         selfAgentId: null,
         lowBalanceThreshold: 5,

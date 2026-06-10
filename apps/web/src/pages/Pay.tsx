@@ -409,10 +409,17 @@ export default function Pay() {
                 </p>
               )}
               {lookupStatus === 'found' && (
-                <p className="text-xs text-success font-bold flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                  SokoPay merchant found: {resolvedBusinessName}
-                </p>
+                <div className="text-xs text-success font-bold flex items-start gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    SokoPay merchant found: {resolvedBusinessName}
+                    {resolvedAddress && (
+                      <span className="block font-mono font-normal text-[10px] text-text-muted mt-0.5">
+                        {resolvedAddress.substring(0, 6)}...{resolvedAddress.substring(38)}
+                      </span>
+                    )}
+                  </span>
+                </div>
               )}
               {lookupStatus === 'not_found' && (
                 <p className="text-xs text-error font-semibold flex items-center gap-1.5">

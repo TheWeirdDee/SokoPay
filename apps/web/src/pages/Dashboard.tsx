@@ -75,9 +75,20 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ count: 0, totalVolumeLocal: 0 });
   const [secondsSinceUpdate, setSecondsSinceUpdate] = useState(0);
 
+  const fetchStats = async () => {
+    try {
+      const res = await api.get('/merchant/stats');
+      if (res.data.success && res.data.stats) {
+        setStats(res.data.stats);
+      }
+    } catch (err) {
+      console.error('Failed to fetch live-activity stats:', err);
+    }
+  };
+
   const fetchDashboardSilent = async () => {
     try {
-      await updateBalance();
+      await Promise.all([updateBalance(), fetchStats()]);
       setSecondsSinceUpdate(0);
     } catch (err) {
       console.error('Silent dashboard update failed:', err);
@@ -146,6 +157,11 @@ export default function Dashboard() {
       setSecondsSinceUpdate(prev => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Load live-activity stats immediately on mount (WebSocket may never connect)
+  useEffect(() => {
+    fetchStats();
   }, []);
 
   // WebSocket Connection

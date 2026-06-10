@@ -48,7 +48,7 @@ function Toggle({ enabled, onChange, label, description, disabled = false }: {
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { profile: contextProfile, fetchProfile, withdrawalAccounts: accounts, fetchAccounts, loadingAccounts } = useCache();
+  const { profile: contextProfile, fetchProfile, withdrawalAccounts: accounts, fetchAccounts, loadingAccounts, clearCache } = useCache();
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [businessName, setBusinessName] = useState('');
@@ -253,7 +253,8 @@ export default function Settings() {
   };
 
   const handleSignOut = () => {
-    ['sokopay_token', 'sokopay_qr_details', 'sokopay_cached_txs', 'sokopay_cached_stats'].forEach(k => localStorage.removeItem(k));
+    clearCache(); // wipe in-memory cached profile/balance/txs so the next login can't see this account's data
+    ['sokopay_token', 'token', 'sokopay_qr_details', 'sokopay_cached_txs', 'sokopay_cached_stats'].forEach(k => localStorage.removeItem(k));
     navigate('/');
   };
 
