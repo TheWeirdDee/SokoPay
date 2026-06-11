@@ -464,7 +464,7 @@ async function syncIncomingOnChainTransfers() {
           if (existing && existing.length > 0) continue;
 
           const amountCusdNum = parseFloat(transfer.amountCusd);
-          await supabase.from('Transaction').insert({
+          const { error: insErr } = await supabase.from('Transaction').insert({
             id: crypto.randomUUID(),
             merchantId: merchant.id,
             type: 'incoming',
@@ -480,7 +480,14 @@ async function syncIncomingOnChainTransfers() {
             notes: 'Direct on-chain cUSD transfer'
           });
 
-          console.log(`[SYNC] Recorded incoming ${transfer.amountCusd} cUSD to merchant ${merchant.id} — tx: ${transfer.txHash}`);
+          if (insErr) {
+            // 23505 = unique-constraint hit: this exact transfer is already
+            // recorded for this merchant (a race or prior cycle beat us).
+            // Treat as already-recorded — not an error.
+            if (insErr.code !== '23505') console.error(`[SYNC] insert error for ${transfer.txHash}:`, insErr.message);
+          } else {
+            console.log(`[SYNC] Recorded incoming ${transfer.amountCusd} cUSD to merchant ${merchant.id} — tx: ${transfer.txHash}`);
+          }
         }
       } catch (err: any) {
         console.error(`[SYNC] Error scanning merchant ${merchant.id}:`, err.message);

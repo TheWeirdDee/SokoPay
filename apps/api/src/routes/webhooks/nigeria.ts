@@ -3,7 +3,7 @@ import { prisma } from '../../config/db';
 import { getCachedRate } from '../../services/muon';
 import { transferCusd } from '../../services/wallet';
 import { broadcastNewTransaction, broadcastStatsUpdate } from '../../services/websocket';
-import { verifyWebhookSignature } from '../../services/webhookAuth';
+import { verifyWebhookSignature, isUniqueViolation } from '../../services/webhookAuth';
 
 const router = Router();
 
@@ -82,25 +82,34 @@ router.post('/bank', async (req: Request, res: Response) => {
     }
 
     // 6. Log transaction to database (confirmed or failed)
-    const transaction = await prisma.transaction.create({
-      data: {
-        merchantId: merchant.id,
-        type: 'incoming',
-        direction: 'in',
-        amountLocal: parseFloat(amount),
-        currencyLocal: 'NGN',
-        amountCusd: parseFloat(amountCusd.toFixed(6)),
-        exchangeRate: muonRate.rate,
-        muonSignature: muonRate.signature,
-        muonRequestId: muonRate.requestId,
-        txHash: txHash || null,
-        method: 'bank',
-        status: txStatus,
-        notes: txStatus === 'failed'
-          ? `On-chain transfer failed: ${failureReason}. Ref: ${transaction_reference || 'N/A'} [ref:${ref}]`
-          : `Providus Bank webhook. Ref: ${transaction_reference || 'N/A'} [ref:${ref}]`
+    let transaction;
+    try {
+      transaction = await prisma.transaction.create({
+        data: {
+          merchantId: merchant.id,
+          type: 'incoming',
+          direction: 'in',
+          amountLocal: parseFloat(amount),
+          currencyLocal: 'NGN',
+          amountCusd: parseFloat(amountCusd.toFixed(6)),
+          exchangeRate: muonRate.rate,
+          muonSignature: muonRate.signature,
+          muonRequestId: muonRate.requestId,
+          txHash: txHash || null,
+          method: 'bank',
+          status: txStatus,
+          notes: txStatus === 'failed'
+            ? `On-chain transfer failed: ${failureReason}. Ref: ${transaction_reference || 'N/A'} [ref:${ref}]`
+            : `Providus Bank webhook. Ref: ${transaction_reference || 'N/A'} [ref:${ref}]`
+        }
+      });
+    } catch (e: any) {
+      if (isUniqueViolation(e)) {
+        console.log(`[WEBHOOK] Nigeria bank: incoming already recorded (P2002) for tx ${txHash}`);
+        return res.json({ success: true, idempotent: true, txHash });
       }
-    });
+      throw e;
+    }
 
     if (txStatus === 'failed') {
       console.error(`[WEBHOOK] Transaction ${transaction.id} recorded as FAILED. Reason: ${failureReason}`);

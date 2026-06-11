@@ -182,7 +182,12 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
         }).select().single();
 
         if (inErr) {
-          console.error('[PAYMENTS SEND] Failed to record recipient incoming tx:', inErr.message, '| txHash:', txHash);
+          // 23505 = unique-constraint hit: the recipient's incoming row for this
+          // exact transfer already exists (the cron sync beat us). Already-recorded,
+          // not an error — skip silently.
+          if (inErr.code !== '23505') {
+            console.error('[PAYMENTS SEND] Failed to record recipient incoming tx:', inErr.message, '| txHash:', txHash);
+          }
         } else if (inTx) {
           broadcastNewTransaction(inTx).catch(() => { /* ws best-effort */ });
         }

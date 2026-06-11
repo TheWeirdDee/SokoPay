@@ -3,7 +3,7 @@ import { prisma } from '../config/db';
 import { KenyaBridge } from '../bridges/kenya';
 import { getCachedRate } from '../services/muon';
 import { transferCusd } from '../services/wallet';
-import { verifyWebhookSignature, isPublicDirectSettlementDisabled } from '../services/webhookAuth';
+import { verifyWebhookSignature, isPublicDirectSettlementDisabled, isUniqueViolation } from '../services/webhookAuth';
 
 const router = Router();
 const kenyaBridge = new KenyaBridge();
@@ -189,26 +189,35 @@ router.post('/:linkToken/pay', async (req: Request, res: Response) => {
       throw transferError;
     }
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        merchantId: merchant.id,
-        type: 'incoming',
-        direction: 'in',
-        amountLocal: finalAmountLocal,
-        currencyLocal: currency,
-        amountCusd: parseFloat(amountCusd.toFixed(6)),
-        exchangeRate: rate.rate,
-        muonSignature: rate.signature,
-        muonRequestId: rate.requestId,
-        txHash: txHash,
-        method: merchant.country === 'KE' ? 'mpesa' : 'bank',
-        status: 'confirmed',
-        counterpart: customerName || 'Customer',
-        notes: paymentRequest 
-          ? `Paid via link for: ${paymentRequest.description || 'N/A'}`
-          : `Direct payment link from ${customerName || 'Customer'}`
+    let transaction;
+    try {
+      transaction = await prisma.transaction.create({
+        data: {
+          merchantId: merchant.id,
+          type: 'incoming',
+          direction: 'in',
+          amountLocal: finalAmountLocal,
+          currencyLocal: currency,
+          amountCusd: parseFloat(amountCusd.toFixed(6)),
+          exchangeRate: rate.rate,
+          muonSignature: rate.signature,
+          muonRequestId: rate.requestId,
+          txHash: txHash,
+          method: merchant.country === 'KE' ? 'mpesa' : 'bank',
+          status: 'confirmed',
+          counterpart: customerName || 'Customer',
+          notes: paymentRequest
+            ? `Paid via link for: ${paymentRequest.description || 'N/A'}`
+            : `Direct payment link from ${customerName || 'Customer'}`
+        }
+      });
+    } catch (e: any) {
+      if (isUniqueViolation(e)) {
+        console.log(`[PUBLIC PAY] incoming already recorded (P2002) for tx ${txHash}`);
+        return res.json({ success: true, idempotent: true, message: 'Payment already recorded', txHash });
       }
-    });
+      throw e;
+    }
 
     if (paymentRequest) {
       paymentRequest = await prisma.paymentRequest.update({
@@ -297,24 +306,33 @@ router.post('/webhooks/kenya/mpesa', async (req: Request, res: Response) => {
     console.log(`[M-PESA WEBHOOK] Delivering ${amountCusd.toFixed(6)} cUSD to merchant ${merchant.walletAddress}...`);
     const txHash = await transferCusd(merchant.walletAddress, amountCusd.toFixed(6));
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        merchantId: merchant.id,
-        type: 'incoming',
-        direction: 'in',
-        amountLocal: parseFloat(amount),
-        currencyLocal: 'KES',
-        amountCusd: parseFloat(amountCusd.toFixed(6)),
-        exchangeRate: rate.rate,
-        muonSignature: rate.signature,
-        muonRequestId: rate.requestId,
-        txHash: txHash,
-        method: 'mpesa',
-        status: 'confirmed',
-        counterpart: phoneItem ? String(phoneItem) : 'M-Pesa Customer',
-        notes: `M-Pesa STK Push. Receipt: ${receipt} [ref:${ref}]`
+    let transaction;
+    try {
+      transaction = await prisma.transaction.create({
+        data: {
+          merchantId: merchant.id,
+          type: 'incoming',
+          direction: 'in',
+          amountLocal: parseFloat(amount),
+          currencyLocal: 'KES',
+          amountCusd: parseFloat(amountCusd.toFixed(6)),
+          exchangeRate: rate.rate,
+          muonSignature: rate.signature,
+          muonRequestId: rate.requestId,
+          txHash: txHash,
+          method: 'mpesa',
+          status: 'confirmed',
+          counterpart: phoneItem ? String(phoneItem) : 'M-Pesa Customer',
+          notes: `M-Pesa STK Push. Receipt: ${receipt} [ref:${ref}]`
+        }
+      });
+    } catch (e: any) {
+      if (isUniqueViolation(e)) {
+        console.log(`[M-PESA WEBHOOK] incoming already recorded (P2002) for tx ${txHash}`);
+        return res.json({ success: true, idempotent: true, txHash });
       }
-    });
+      throw e;
+    }
 
     if (invoiceId) {
       await prisma.paymentRequest.update({

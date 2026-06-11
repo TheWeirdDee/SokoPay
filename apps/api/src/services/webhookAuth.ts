@@ -32,3 +32,9 @@ export function verifyWebhookSignature(
 //   DISABLE_PUBLIC_DIRECT_SETTLEMENT=true
 export const isPublicDirectSettlementDisabled = (): boolean =>
   process.env.DISABLE_PUBLIC_DIRECT_SETTLEMENT === 'true';
+
+// Prisma throws P2002 on a unique-constraint violation. With the
+// @@unique([merchantId, txHash, direction]) constraint, this means the exact
+// transfer is already recorded for this merchant — treat as already-recorded,
+// never a 500.
+export const isUniqueViolation = (e: any): boolean => e?.code === 'P2002';

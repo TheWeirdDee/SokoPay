@@ -72,6 +72,13 @@ model Transaction {
   notes           String?
   createdAt       DateTime @default(now())
   merchant        Merchant @relation(fields: [merchantId], references: [id])
+
+  // The DB itself refuses a second row for the same on-chain transfer to the
+  // same merchant in the same direction. Closes the duplicate-insert class of
+  // bug permanently (no code path, race, or stale process can defeat it).
+  // NULL txHash (cash/manual entries) is exempt: Postgres treats NULLs as
+  // distinct, so multiple cash rows per merchant remain allowed.
+  @@unique([merchantId, txHash, direction])
 }
 
 model ScheduledPayment {
