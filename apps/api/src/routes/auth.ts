@@ -9,7 +9,10 @@ import { Resend } from 'resend';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+if (!process.env.JWT_SECRET || Buffer.byteLength(process.env.JWT_SECRET, 'utf8') < 32) {
+  throw new Error('JWT_SECRET must be set and at least 32 bytes long. Refusing to start with a missing or weak JWT secret.');
+}
+const JWT_SECRET: string = process.env.JWT_SECRET;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(.{8,})$/;
