@@ -451,13 +451,17 @@ async function syncIncomingOnChainTransfers() {
           // a merchant→merchant transfer produces a sender 'out' row and a recipient
           // 'in' row sharing the same txHash, so a global txHash check would wrongly
           // skip recording the recipient's incoming side.
+          //
+          // Use limit(1) + length, NOT maybeSingle(): maybeSingle returns null when
+          // 2+ rows already share this txHash, which silently defeats the guard and
+          // causes the cron to re-insert a new duplicate every cycle (runaway).
           const { data: existing } = await supabase.from('Transaction')
             .select('id')
             .eq('txHash', transfer.txHash)
             .eq('merchantId', merchant.id)
-            .maybeSingle();
+            .limit(1);
 
-          if (existing) continue;
+          if (existing && existing.length > 0) continue;
 
           const amountCusdNum = parseFloat(transfer.amountCusd);
           await supabase.from('Transaction').insert({
