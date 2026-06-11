@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "prisma generate && tsc --skipLibCheck",
+    "build": "prisma generate && NODE_OPTIONS=--max-old-space-size=4096 tsc --skipLibCheck",
     "start": "PRISMA_QUERY_ENGINE_LIBRARY=/app/node_modules/.prisma/client/libquery_engine-linux-musl-openssl-3.0.x.so.node node dist/index.js",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@chaoschain/sdk": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/client": "^5.14.0",
     "@supabase/supabase-js": "^2.106.2",
     "africastalking": "^0.7.9",

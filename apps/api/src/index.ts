@@ -42,6 +42,7 @@ import { transactionsRouter } from './routes/transactions';
 import { agentRouter } from './routes/agent';
 import { withdrawRouter } from './routes/withdraw';
 import { startCronDaemon } from './services/cron';
+import { handleMcpPost, handleMcpInfo } from './mcp/handler';
 
 app.use('/auth', authRouter);
 app.use('/merchant', merchantRouter);
@@ -51,6 +52,11 @@ app.use('/payments', paymentsRouter);
 app.use('/transactions', transactionsRouter);
 app.use('/agent', agentRouter);
 app.use('/withdraw', withdrawRouter);
+
+// MCP server (Streamable HTTP) for ERC-8004 / 8004scan service detection.
+// Isolated, additive — does not touch the signup/payment flow.
+app.post('/mcp', handleMcpPost);
+app.get('/mcp', handleMcpInfo);
 
 app.get('/', (req, res) => {
   res.status(200).json({ name: 'SokoPay API', version: '1.0.0', status: 'ok' });
