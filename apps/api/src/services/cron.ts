@@ -447,10 +447,14 @@ async function syncIncomingOnChainTransfers() {
         for (const transfer of transfers) {
           if (!transfer.txHash || parseFloat(transfer.amountCusd) <= 0) continue;
 
-          // Skip if already recorded
+          // Skip if already recorded FOR THIS MERCHANT. Dedup must be per-merchant:
+          // a merchant→merchant transfer produces a sender 'out' row and a recipient
+          // 'in' row sharing the same txHash, so a global txHash check would wrongly
+          // skip recording the recipient's incoming side.
           const { data: existing } = await supabase.from('Transaction')
             .select('id')
             .eq('txHash', transfer.txHash)
+            .eq('merchantId', merchant.id)
             .maybeSingle();
 
           if (existing) continue;

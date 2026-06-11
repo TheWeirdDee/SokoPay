@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { transferCusdFromMerchant, decryptPrivateKey, getBalance } from '../services/wallet';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getCachedRate } from '../services/muon';
+import { broadcastNewTransaction } from '../services/websocket';
 
 const router = Router();
 
@@ -146,6 +147,48 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
 
     if (txError) {
       console.error('[PAYMENTS SEND] DB insert failed after successful on-chain transfer:', txError.message, '| txHash:', txHash);
+    }
+
+    // If the recipient is a known SokoPay merchant, record their incoming side
+    // immediately (and notify them live). The block-scanner cron dedupes per
+    // merchant + txHash, so it won't double-insert this.
+    try {
+      const { data: recipientMatches } = await supabase
+        .from('Merchant')
+        .select('id, country, walletAddress, businessName')
+        .ilike('walletAddress', recipientAddress)
+        .limit(1);
+      const recipient = recipientMatches?.[0];
+
+      if (recipient && recipient.id !== merchantId) {
+        const recipientCurrency = recipient.country === 'KE' ? 'KES' : 'NGN';
+        const recipientRate = await getCachedRate(recipientCurrency);
+        const recipientAmountLocal = parseFloat((amountCusdNum * recipientRate.rate).toFixed(2));
+
+        const { data: inTx, error: inErr } = await supabase.from('Transaction').insert({
+          id: crypto.randomUUID(),
+          merchantId: recipient.id,
+          type: 'incoming',
+          direction: 'in',
+          amountCusd: amountCusdNum,
+          amountLocal: recipientAmountLocal,
+          currencyLocal: recipientCurrency,
+          exchangeRate: recipientRate.rate,
+          txHash,
+          method: 'x402',
+          status: 'confirmed',
+          counterpart: merchant.businessName || merchant.walletAddress,
+          notes: notes || 'Incoming SokoPay transfer'
+        }).select().single();
+
+        if (inErr) {
+          console.error('[PAYMENTS SEND] Failed to record recipient incoming tx:', inErr.message, '| txHash:', txHash);
+        } else if (inTx) {
+          broadcastNewTransaction(inTx).catch(() => { /* ws best-effort */ });
+        }
+      }
+    } catch (recErr: any) {
+      console.error('[PAYMENTS SEND] Recipient incoming-record step errored:', recErr?.message);
     }
 
     res.json({ success: true, transaction: transaction ?? null, txHash });
