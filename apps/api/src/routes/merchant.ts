@@ -287,13 +287,14 @@ router.patch('/update', requireAuth, async (req: AuthRequest, res: Response) => 
           return res.status(400).json({ error: 'Please enter a valid email address.' });
         }
         const normalized = trimmed.toLowerCase();
-        const { data: existing } = await supabase
+        const { data: owners, error: dupErr } = await supabase
           .from('Merchant')
           .select('id')
           .ilike('email', normalized)
           .neq('id', merchantId)
-          .maybeSingle();
-        if (existing) {
+          .limit(1);
+        if (dupErr) throw dupErr;
+        if (owners && owners.length > 0) {
           return res.status(409).json({ error: 'This email is already linked to another SokoPay account.' });
         }
         updateData.email = normalized;

@@ -124,12 +124,13 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
           return res.status(400).json({ error: 'Please enter a valid email address.' });
         }
         const lowered = trimmedEmail.toLowerCase();
-        const { data: emailOwner } = await supabase
+        const { data: emailOwners, error: dupErr } = await supabase
           .from('Merchant')
           .select('id')
           .ilike('email', lowered)
-          .maybeSingle();
-        if (emailOwner) {
+          .limit(1);
+        if (dupErr) throw dupErr;
+        if (emailOwners && emailOwners.length > 0) {
           return res.status(409).json({ error: 'This email is already linked to another SokoPay account.' });
         }
         normalizedEmail = lowered;

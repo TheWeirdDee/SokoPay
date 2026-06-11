@@ -101,6 +101,15 @@ export default function Pay() {
 
     // Phone-like: optional + then 7–15 digits/spaces/dashes
     if (/^[+]?[\d\s\-]{7,15}$/.test(input)) {
+      // Don't hit the API until the number is long enough to be a complete
+      // phone (≥10 digits) — avoids noisy 404s on every keystroke while typing.
+      const digitsOnly = input.replace(/\D/g, '');
+      if (digitsOnly.length < 10) {
+        setLookupStatus('idle');
+        setResolvedAddress('');
+        setResolvedBusinessName('');
+        return;
+      }
       setLookupStatus('looking');
       const timer = setTimeout(async () => {
         try {

@@ -16,6 +16,10 @@ export function initWebSocketServer(server: Server) {
   wss.on('connection', (ws: WebSocket) => {
     console.log('[WEBSOCKET] Client connected');
 
+    // Heartbeat: mark alive on connect and on every pong from the client
+    (ws as any).isAlive = true;
+    ws.on('pong', () => { (ws as any).isAlive = true; });
+
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
@@ -38,6 +42,21 @@ export function initWebSocketServer(server: Server) {
       console.log('[WEBSOCKET] Client disconnected');
     });
   });
+
+  // Ping every 30s; terminate connections that didn't pong since the last round.
+  // Keeps connections warm through idle proxy timeouts and reaps dead sockets.
+  const heartbeat = setInterval(() => {
+    wss?.clients.forEach((ws) => {
+      if ((ws as any).isAlive === false) {
+        clientMerchantMap.delete(ws);
+        return ws.terminate();
+      }
+      (ws as any).isAlive = false;
+      try { ws.ping(); } catch { /* socket already closing */ }
+    });
+  }, 30000);
+
+  wss.on('close', () => clearInterval(heartbeat));
 
   console.log('[WEBSOCKET] WebSocket server initialized');
 }
