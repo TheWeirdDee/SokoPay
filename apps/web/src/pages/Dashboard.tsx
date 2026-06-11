@@ -529,18 +529,29 @@ export default function Dashboard() {
                   </span>
                 </div>
 
-                {/* Week bar chart */}
-                <div className="pt-4 border-t border-[#FAF7F2]/10">
+                {/* Week bar chart — last 7 days of real inflow, tap to open Analytics */}
+                <button
+                  type="button"
+                  onClick={() => navigate('/analytics')}
+                  className="w-full text-left pt-4 border-t border-[#FAF7F2]/10 group"
+                  title="View full analytics"
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] font-bold text-[#7A6B55] uppercase tracking-wider">Last 7 Days</span>
+                    <span className="text-[10px] font-bold text-[#7A6B55] group-hover:text-[#C4622D] transition-colors">
+                      Analytics →
+                    </span>
+                  </div>
                   <div className="flex justify-between items-end h-16 px-1">
                     {weekData.map((w, idx) => (
-                      <div key={idx} className="flex flex-col items-center flex-1">
+                      <div key={idx} className="flex flex-col items-center flex-1" title={`${w.day}: ${currencySymbol}${formatCurrency(w.amount)}`}>
                         {/* Bar */}
-                        <div className="w-4 bg-[#FAF7F2]/5 rounded-t-sm h-full flex flex-col justify-end">
-                          <div 
-                            className="w-full rounded-t-sm transition-all duration-300"
-                            style={{ 
-                              height: w.height === '0%' ? '100%' : w.height, 
-                              backgroundColor: w.isFilled ? '#C4622D' : 'rgba(255, 255, 255, 0.15)' 
+                        <div className="w-4 bg-[#FAF7F2]/10 rounded-t-sm h-full flex flex-col justify-end overflow-hidden">
+                          <div
+                            className="w-full rounded-t-sm transition-all duration-300 group-hover:opacity-90"
+                            style={{
+                              height: w.isFilled ? w.height : '6%',
+                              backgroundColor: w.isFilled ? '#C4622D' : 'rgba(255, 255, 255, 0.18)'
                             }}
                           ></div>
                         </div>
@@ -549,7 +560,10 @@ export default function Dashboard() {
                       </div>
                     ))}
                   </div>
-                </div>
+                  {weekData.every(w => !w.isFilled) && (
+                    <p className="text-[10px] text-[#7A6B55] mt-2 font-semibold">No sales recorded in the last 7 days.</p>
+                  )}
+                </button>
               </div>
             </section>
 

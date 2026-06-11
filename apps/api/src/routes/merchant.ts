@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getBalance } from '../services/wallet';
 import { getTransactionStats } from '../services/websocket';
+import { getCachedRate } from '../services/muon';
 import { randomUUID } from 'crypto';
 
 const router = Router();
@@ -95,7 +96,9 @@ router.get('/balance', requireAuth, async (req: AuthRequest, res: Response) => {
     }
 
     const balance = await getBalance(merchant.walletAddress);
-    const rate = merchant.country === 'KE' ? 150 : 1500;
+    const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
+    const rateData = await getCachedRate(currency);
+    const rate = rateData.rate;
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -128,7 +131,7 @@ router.get('/balance', requireAuth, async (req: AuthRequest, res: Response) => {
         cusd: balance.cusd,
         celo: balance.celo,
         local: (Number(balance.cusd) * rate).toFixed(2),
-        currency: merchant.country === 'KE' ? 'KES' : 'NGN',
+        currency,
       },
       todayEarnings: {
         local: todayEarningsLocal.toFixed(2),
