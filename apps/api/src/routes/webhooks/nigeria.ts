@@ -3,15 +3,34 @@ import { prisma } from '../../config/db';
 import { getCachedRate } from '../../services/muon';
 import { transferCusd } from '../../services/wallet';
 import { broadcastNewTransaction, broadcastStatsUpdate } from '../../services/websocket';
+import { verifyWebhookSignature } from '../../services/webhookAuth';
 
 const router = Router();
 
 router.post('/bank', async (req: Request, res: Response) => {
   try {
+    // Authenticate: this endpoint moves operator-wallet cUSD, so a forged call
+    // could drain the float. Require a valid HMAC signature over the raw body.
+    if (!verifyWebhookSignature((req as any).rawBody, req.header('x-webhook-signature'), process.env.WEBHOOK_NIGERIA_SECRET)) {
+      console.warn('[WEBHOOK] Nigeria bank webhook rejected: invalid/missing signature');
+      return res.status(401).json({ error: 'Invalid or missing webhook signature' });
+    }
+
     const { account_number, amount, transaction_reference } = req.body;
 
     if (!account_number || !amount) {
       return res.status(400).json({ error: 'Missing account_number or amount in payload' });
+    }
+
+    // Idempotency: a replayed webhook must not mint twice. Key on the provider
+    // reference; if we've already recorded it, return the existing transaction.
+    const ref = transaction_reference ? String(transaction_reference) : '';
+    if (ref) {
+      const already = await prisma.transaction.findFirst({ where: { notes: { contains: `[ref:${ref}]` } } });
+      if (already) {
+        console.log(`[WEBHOOK] Nigeria bank webhook idempotent hit for ref ${ref}`);
+        return res.json({ success: true, idempotent: true, transactionId: already.id, txHash: already.txHash });
+      }
     }
 
     console.log(`[WEBHOOK] Nigeria bank webhook received for account: ${account_number}, amount: ${amount}`);
@@ -78,8 +97,8 @@ router.post('/bank', async (req: Request, res: Response) => {
         method: 'bank',
         status: txStatus,
         notes: txStatus === 'failed'
-          ? `On-chain transfer failed: ${failureReason}. Ref: ${transaction_reference || 'N/A'}`
-          : `Providus Bank webhook. Ref: ${transaction_reference || 'N/A'}`
+          ? `On-chain transfer failed: ${failureReason}. Ref: ${transaction_reference || 'N/A'} [ref:${ref}]`
+          : `Providus Bank webhook. Ref: ${transaction_reference || 'N/A'} [ref:${ref}]`
       }
     });
 

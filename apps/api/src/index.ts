@@ -30,7 +30,9 @@ const port = process.env.PORT || 3000;
 
 app.use(helmet());
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+// Capture the raw body so webhook handlers can verify HMAC signatures over the
+// exact bytes the sender signed. Parsing behaviour is otherwise unchanged.
+app.use(express.json({ limit: '50mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 import { authRouter } from './routes/auth';
@@ -70,6 +72,7 @@ const server = createServer(app);
 
 server.listen(port, () => {
   console.log(`SokoPay API listening on port ${port}`);
+  console.log('[STARTUP] NODE_ENV:', process.env.NODE_ENV ?? 'unset');
   initWebSocketServer(server);
   setTimeout(() => {
     startCronDaemon();

@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { KenyaBridge } from '../bridges/kenya';
 import { getCachedRate } from '../services/muon';
 import { transferCusd } from '../services/wallet';
+import { verifyWebhookSignature, isPublicDirectSettlementDisabled } from '../services/webhookAuth';
 
 const router = Router();
 const kenyaBridge = new KenyaBridge();
@@ -159,6 +160,18 @@ router.post('/:linkToken/pay', async (req: Request, res: Response) => {
       });
     }
 
+    // Direct on-chain mint from the operator wallet WITHOUT a confirmed fiat
+    // settlement is a float-drain vector (vector 3). It stays ENABLED by default
+    // for the demo and is closed only by explicitly setting
+    // DISABLE_PUBLIC_DIRECT_SETTLEMENT=true — never by NODE_ENV. When disabled,
+    // cUSD is delivered by the authenticated Providus (/webhooks/nigeria/bank)
+    // and M-Pesa (/p/webhooks/kenya/mpesa) webhooks after the rail confirms.
+    if (isPublicDirectSettlementDisabled()) {
+      return res.status(400).json({
+        error: 'Direct settlement is currently disabled. Pay into the displayed account details; your cUSD is delivered automatically once the payment is confirmed.'
+      });
+    }
+
     console.log(`[PUBLIC PAY] Processing mainnet token transfer. Amount: ${finalAmountLocal} ${merchant.country === 'KE' ? 'KES' : 'NGN'}`);
 
     const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
@@ -223,8 +236,15 @@ router.post('/:linkToken/pay', async (req: Request, res: Response) => {
 
 router.post('/webhooks/kenya/mpesa', async (req: Request, res: Response) => {
   try {
+    // Authenticate: this endpoint moves operator-wallet cUSD. Require a valid
+    // HMAC signature over the raw body before trusting anything in it.
+    if (!verifyWebhookSignature((req as any).rawBody, req.header('x-webhook-signature'), process.env.WEBHOOK_MPESA_SECRET)) {
+      console.warn('[M-PESA WEBHOOK] rejected: invalid/missing signature');
+      return res.status(401).json({ error: 'Invalid or missing webhook signature' });
+    }
+
     console.log('[M-PESA WEBHOOK] Received callback payload:', JSON.stringify(req.body));
-    
+
     const stkCallback = req.body?.Body?.stkCallback;
     if (!stkCallback) {
       return res.status(400).json({ error: 'Invalid Safaricom payload' });
@@ -235,12 +255,14 @@ router.post('/webhooks/kenya/mpesa', async (req: Request, res: Response) => {
       return res.json({ success: false, message: stkCallback.ResultDesc });
     }
 
-    const merchantId = req.query.merchantId as string;
-    const invoiceId = req.query.invoiceId as string;
+    // Derive the merchant from the SIGNED body, not a query param. Because the
+    // body is HMAC-verified above, merchantId/invoiceId here are authenticated.
+    const merchantId = req.body.merchantId as string;
+    const invoiceId = req.body.invoiceId as string;
 
     if (!merchantId) {
-      console.error('[M-PESA WEBHOOK] Missing merchantId in callback query');
-      return res.status(400).json({ error: 'Missing merchantId in callback query' });
+      console.error('[M-PESA WEBHOOK] Missing merchantId in signed payload');
+      return res.status(400).json({ error: 'Missing merchantId in signed payload' });
     }
 
     const merchant = await prisma.merchant.findUnique({
@@ -256,6 +278,16 @@ router.post('/webhooks/kenya/mpesa', async (req: Request, res: Response) => {
     const amount = items.find((i: any) => i.Name === 'Amount')?.Value;
     const receipt = items.find((i: any) => i.Name === 'MpesaReceiptNumber')?.Value;
     const phoneItem = items.find((i: any) => i.Name === 'PhoneNumber')?.Value;
+
+    // Idempotency: a replayed callback must not mint twice. Key on the M-Pesa receipt.
+    const ref = receipt ? String(receipt) : '';
+    if (ref) {
+      const already = await prisma.transaction.findFirst({ where: { notes: { contains: `[ref:${ref}]` } } });
+      if (already) {
+        console.log(`[M-PESA WEBHOOK] idempotent hit for receipt ${ref}`);
+        return res.json({ success: true, idempotent: true, transactionId: already.id });
+      }
+    }
 
     console.log(`[M-PESA WEBHOOK] Payment verified. Amount: ${amount} KES, Receipt: ${receipt}, Phone: ${phoneItem}`);
 
@@ -280,7 +312,7 @@ router.post('/webhooks/kenya/mpesa', async (req: Request, res: Response) => {
         method: 'mpesa',
         status: 'confirmed',
         counterpart: phoneItem ? String(phoneItem) : 'M-Pesa Customer',
-        notes: `M-Pesa STK Push. Receipt: ${receipt}`
+        notes: `M-Pesa STK Push. Receipt: ${receipt} [ref:${ref}]`
       }
     });
 
