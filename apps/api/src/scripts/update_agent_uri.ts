@@ -49,6 +49,17 @@ const metadata = {
   tags: ['payments', 'celo', 'africa', 'ngn', 'kes', 'cusd', 'merchant', 'x402'],
   services: [
     {
+      // MCP service — fields cover both the conduit-style shape 8004scan detects
+      // (name "MCP" + endpoint + version) and the richer type/url/transport form.
+      name: 'MCP',
+      type: 'mcp',
+      version: '2025-06-18',
+      transport: 'http',
+      endpoint: 'https://sokopay.quikdb.net/mcp',
+      url: 'https://sokopay.quikdb.net/mcp',
+      description: 'SokoPay MCP server — balance, FX rates, payments, transaction history for African merchants on Celo'
+    },
+    {
       name: 'web',
       version: '1.0.0',
       endpoint: 'https://sokopay.vercel.app'
