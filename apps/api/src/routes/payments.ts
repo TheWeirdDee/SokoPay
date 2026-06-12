@@ -107,10 +107,15 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
     console.log('[PAYMENTS SEND] DB walletAddress:', merchant.walletAddress);
     console.log('[PAYMENTS SEND] Balance:', balance, '| Amount:', amountCusd);
 
-    if (balanceNum < amountNum) {
+    // Gas is paid in cUSD (feeCurrency), so the spendable amount is balance minus
+    // a gas reserve. Checking balance < amount alone lets a near-full-balance send
+    // pass here but revert on-chain (amount + fee > balance). Reserve a buffer so
+    // we reject client-side instead of broadcasting a doomed transfer.
+    const GAS_BUFFER_CUSD = 0.01; // generously covers ~0.001–0.005 cUSD of feeCurrency gas
+    if (balanceNum < amountNum + GAS_BUFFER_CUSD) {
       return res.status(400).json({
         success: false,
-        error: `Insufficient cUSD balance. Have: ${balanceNum}, Need: ${amountNum}`
+        error: `Insufficient balance after network fees. You have ${balanceNum.toFixed(4)} cUSD; this transfer needs ${amountNum.toFixed(4)} + ~${GAS_BUFFER_CUSD} cUSD reserved for gas.`
       });
     }
 
@@ -201,6 +206,11 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('[PAYMENTS SEND] Transfer failed:', error?.shortMessage || error?.message || error);
     const msg = error?.shortMessage || error?.message || 'Failed to send payment';
+    // On-chain revert (e.g. amount + gas fee exceeded balance). Nothing was
+    // recorded because the throw happened before the DB inserts.
+    if (msg.includes('reverted')) {
+      return res.status(400).json({ success: false, error: 'Transfer failed: insufficient balance after network fees.' });
+    }
     if (msg.includes('transfer amount exceeds balance') || msg.includes('ERC20InsufficientBalance')) {
       return res.status(400).json({ error: 'Insufficient cUSD balance to complete this transfer.' });
     }

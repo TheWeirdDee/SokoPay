@@ -209,7 +209,13 @@ export async function transferCusd(toAddress: string, amountCusd: string): Promi
   });
 
   console.log(`[ON-CHAIN] Transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
-  await publicClient.waitForTransactionReceipt({ hash });
+  // Verify the tx actually succeeded — a reverted transfer must not be recorded
+  // as a confirmed incoming credit.
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    console.error(`[ON-CHAIN] Operator transfer ${hash} REVERTED (status: ${receipt.status}).`);
+    throw new Error(`On-chain transfer reverted (status: ${receipt.status}). Tx: ${hash}`);
+  }
   return hash;
 }
 
@@ -265,7 +271,15 @@ export async function transferCusdFromMerchant(
 
   console.log(`[ON-CHAIN] Merchant ${account.address} transferred ${amountCusd} cUSD to ${toAddress}. Tx Hash: ${hash}`);
 
-  await publicClient.waitForTransactionReceipt({ hash });
+  // Gas estimation is bypassed (see above), so a doomed transfer is mined and
+  // REVERTS on-chain rather than throwing pre-flight. We MUST check the receipt
+  // status — otherwise a reverted tx is treated as success and recorded as if
+  // money moved. Throw on revert so callers record nothing and surface an error.
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    console.error(`[ON-CHAIN] Transaction ${hash} REVERTED (status: ${receipt.status}).`);
+    throw new Error(`On-chain transfer reverted (status: ${receipt.status}). Tx: ${hash}`);
+  }
   console.log(`[ON-CHAIN] Transaction ${hash} confirmed.`);
 
   return hash;
