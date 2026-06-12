@@ -9,6 +9,7 @@ import Pay from './pages/Pay';
 import Withdraw from './pages/Withdraw';
 import QR from './pages/QR';
 import Analytics from './pages/Analytics';
+import Summary from './pages/Summary';
 import Layout from './components/Layout';
 import PublicPayment from './pages/PublicPayment';
 import ResetPassword from './pages/ResetPassword';
@@ -28,6 +29,7 @@ function App() {
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/summary" element={<Summary />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/pay" element={<Pay />} />

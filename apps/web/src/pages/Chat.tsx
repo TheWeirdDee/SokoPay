@@ -14,7 +14,8 @@ import {
   Clock,
   Plus,
   X,
-  PanelLeftOpen
+  PanelLeftOpen,
+  BarChart3
 } from 'lucide-react';
 import { useCache } from '../context/CacheContext';
 import PinModal from '../components/PinModal';
@@ -848,6 +849,15 @@ export default function Chat() {
           </div>
         </div>
 
+        {/* Stable, Gemini-free earnings summary */}
+        <button
+          onClick={() => navigate('/summary')}
+          className="flex items-center gap-1.5 px-3 py-2 border-2 border-[#1A1208] bg-[#C4622D] text-[#FAF7F2] rounded-md hover:opacity-90 active:translate-x-[1px] active:translate-y-[1px] shadow-[2px_2px_0px_#1A1208] transition-all font-display font-black text-[11px] uppercase tracking-wider"
+          title="View earnings summary"
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span className="hidden sm:inline">View Summary</span>
+        </button>
       </header>
 
       {/* Error message */}

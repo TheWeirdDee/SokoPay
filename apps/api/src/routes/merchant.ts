@@ -82,6 +82,69 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// Earnings summary segregated by period (daily / weekly / monthly).
+// PURE DB READ — no Gemini, no external service — so it can never fail with
+// "agent is busy". Figures come straight from the merchant's incoming Transactions.
+router.get('/summary', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) return res.status(401).json({ error: 'Unauthorized: missing merchant ID' });
+
+    const { data: merchant } = await supabase.from('Merchant').select('country').eq('id', merchantId).single();
+    const currency = merchant?.country === 'KE' ? 'KES' : 'NGN';
+
+    const now = new Date();
+    const monthStart = new Date(now); monthStart.setDate(now.getDate() - 30);
+
+    // Pull the last 30 days of incoming (earnings) once; slice the periods in memory.
+    const { data: rows } = await supabase.from('Transaction')
+      .select('amountLocal, amountCusd, createdAt')
+      .eq('merchantId', merchantId)
+      .eq('direction', 'in')
+      .gte('createdAt', monthStart.toISOString());
+
+    const all = rows || [];
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - 7);
+
+    const computeStats = (txs: any[]) => {
+      if (txs.length === 0) {
+        return { count: 0, totalLocal: 0, totalCusd: 0, biggestLocal: 0, biggestCusd: 0, busiestDay: null, busiestHour: null };
+      }
+      let totalLocal = 0, totalCusd = 0, biggestLocal = 0, biggestCusd = 0;
+      const byDay: Record<number, number> = {};
+      const byHour: Record<number, number> = {};
+      for (const t of txs) {
+        const l = t.amountLocal || 0, c = t.amountCusd || 0;
+        totalLocal += l; totalCusd += c;
+        if (l > biggestLocal) { biggestLocal = l; biggestCusd = c; }
+        const d = new Date(t.createdAt);
+        byDay[d.getDay()] = (byDay[d.getDay()] || 0) + l;
+        byHour[d.getHours()] = (byHour[d.getHours()] || 0) + l;
+      }
+      const top = (m: Record<number, number>) => Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+      return {
+        count: txs.length,
+        totalLocal: Number(totalLocal.toFixed(2)),
+        totalCusd: Number(totalCusd.toFixed(6)),
+        biggestLocal: Number(biggestLocal.toFixed(2)),
+        biggestCusd: Number(biggestCusd.toFixed(6)),
+        busiestDay: Number(top(byDay)[0]),   // 0=Sun..6=Sat
+        busiestHour: Number(top(byHour)[0])  // 0..23
+      };
+    };
+
+    const daily = computeStats(all.filter(t => new Date(t.createdAt) >= todayStart));
+    const weekly = computeStats(all.filter(t => new Date(t.createdAt) >= weekStart));
+    const monthly = computeStats(all);
+
+    return res.json({ success: true, currency, periods: { daily, weekly, monthly } });
+  } catch (error: any) {
+    console.error('GET /merchant/summary error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to build summary' });
+  }
+});
+
 router.get('/balance', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const merchantId = req.merchantId;
