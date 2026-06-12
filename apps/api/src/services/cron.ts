@@ -444,8 +444,14 @@ async function syncIncomingOnChainTransfers() {
         // 1000 blocks ≈ 83 min on Celo (5s/block); safe within forno's query limit
         const transfers = await getIncomingCusdTransfers(merchant.walletAddress, 1000);
 
+        // Celo feeCurrency gas refunds credit tiny cUSD amounts (~0.0003) back to a
+        // merchant's own wallet when they SEND a payment. The block scanner sees
+        // those as "incoming" — they are NOT income. Skip sub-threshold transfers so
+        // they're never recorded. 0.001 cUSD (~₦1.4) sits well above the ~0.0003 gas
+        // dust and below any realistic real payment, so legit small payments still record.
+        const DUST_CUSD = 0.001;
         for (const transfer of transfers) {
-          if (!transfer.txHash || parseFloat(transfer.amountCusd) <= 0) continue;
+          if (!transfer.txHash || parseFloat(transfer.amountCusd) < DUST_CUSD) continue;
 
           // Skip if already recorded FOR THIS MERCHANT. Dedup must be per-merchant:
           // a merchant→merchant transfer produces a sender 'out' row and a recipient

@@ -121,7 +121,9 @@ export async function getBalance(walletAddress: string): Promise<{
     ]);
 
     return {
-      cusd: Number(formatUnits(cusdBalance as bigint, 18)).toFixed(2),
+      // 6 dp, not 2 — rounding cUSD to 2 dp understated the derived local-currency
+      // balance (e.g. 0.04079 → 0.04 lost ~₦1). The frontend formats for display.
+      cusd: Number(formatUnits(cusdBalance as bigint, 18)).toFixed(6),
       celo: Number(formatEther(celoBalance)).toFixed(4)
     };
   } catch (error) {

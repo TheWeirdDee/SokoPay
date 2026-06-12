@@ -107,23 +107,24 @@ router.post('/send', requireAuth, async (req: AuthRequest, res: Response) => {
     console.log('[PAYMENTS SEND] DB walletAddress:', merchant.walletAddress);
     console.log('[PAYMENTS SEND] Balance:', balance, '| Amount:', amountCusd);
 
-    // Gas is paid in cUSD (feeCurrency), so the spendable amount is balance minus
-    // a gas reserve. Checking balance < amount alone lets a near-full-balance send
-    // pass here but revert on-chain (amount + fee > balance). Reserve a buffer so
-    // we reject client-side instead of broadcasting a doomed transfer.
-    const GAS_BUFFER_CUSD = 0.01; // generously covers ~0.001–0.005 cUSD of feeCurrency gas
+    const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
+    const sym = currency === 'KES' ? 'KSh' : '₦';
+    const rateData = await getCachedRate(currency);
+    if (!rateData?.rate || rateData.rate <= 0) {
+      return res.status(500).json({ error: 'Exchange rate unavailable — please try again in a moment.' });
+    }
+    const rate = rateData.rate;
+
+    // Gas is paid in cUSD (feeCurrency), so the spendable amount is balance minus a
+    // gas reserve. Checking balance < amount alone lets a near-full-balance send pass
+    // here but revert on-chain (amount + fee > balance). Reject client-side instead,
+    // phrased in the merchant's local currency.
+    const GAS_BUFFER_CUSD = 0.01; // ~0.001–0.005 cUSD of feeCurrency gas, with margin
     if (balanceNum < amountNum + GAS_BUFFER_CUSD) {
       return res.status(400).json({
         success: false,
-        error: `Insufficient balance after network fees. You have ${balanceNum.toFixed(4)} cUSD; this transfer needs ${amountNum.toFixed(4)} + ~${GAS_BUFFER_CUSD} cUSD reserved for gas.`
+        error: `Insufficient balance after network fees. You have ${sym}${(balanceNum * rate).toFixed(2)}; this transfer needs ${sym}${(amountNum * rate).toFixed(2)} plus ~${sym}${(GAS_BUFFER_CUSD * rate).toFixed(0)} for network fees.`
       });
-    }
-
-    const currency = merchant.country === 'KE' ? 'KES' : 'NGN';
-    const rateData = await getCachedRate(currency);
-
-    if (!rateData?.rate || rateData.rate <= 0) {
-      return res.status(500).json({ error: 'Exchange rate unavailable — please try again in a moment.' });
     }
 
     const amountCusdNum = parseFloat(amountCusd);
