@@ -14,7 +14,31 @@ router.get('/', (req, res) => {
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 
-async function generateAgentCompletion(merchantId: string, userMessage: string, historyOffset = 15): Promise<string> {
+// Single entry point for every Gemini call so they ALL get retry-with-backoff.
+// Gemini intermittently returns 503 "model overloaded" / 429 with no retry; one
+// busy moment otherwise kills the whole chat response. Retry transient failures
+// (503/429/500/timeout/network) up to 3 attempts with ~1s, 2s backoff.
+async function callGemini(body: any): Promise<any> {
+  const MAX = 3;
+  let lastErr: any;
+  for (let attempt = 0; attempt < MAX; attempt++) {
+    try {
+      return await axios.post(`${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`, body, { timeout: 20000 });
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.response?.status;
+      const transient = status === 503 || status === 429 || status === 500 || err?.code === 'ECONNABORTED' || status === undefined;
+      if (attempt < MAX - 1 && transient) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // 1s, then 2s
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+async function generateAgentCompletion(merchantId: string, userMessage: string): Promise<string> {
   const { data: merchant, error } = await supabase.from('Merchant').select('*').eq('id', merchantId).single();
   if (error || !merchant) {
     throw new Error('Merchant not found');
@@ -92,13 +116,16 @@ Guidelines:
    - Format: [WITHDRAW_APPROVAL] { "amountCusd": X, "accountType": "bank" }
 6. If the merchant tells you about an offline sale (e.g. "I just sell yam for 2000"), tell them they can log it instantly by tapping "Record Cash" on their dashboard, or answer their questions about sales.`;
 
+  // Send only the LAST 10 messages (most recent), not the oldest. Ordering
+  // ascending+limit returned the *oldest* messages, sending stale context and
+  // bloating the request. Fetch newest-first, then restore chronological order.
   const { data: dbHistory } = await supabase.from('Conversation')
-    .select('*')
+    .select('role, content')
     .eq('merchantId', merchantId)
-    .order('createdAt', { ascending: true })
-    .limit(historyOffset);
+    .order('createdAt', { ascending: false })
+    .limit(10);
 
-  const contents = (dbHistory || []).slice(-10).map(msg => ({
+  const contents = (dbHistory || []).reverse().map(msg => ({
     role: msg.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: msg.content }]
   }));
@@ -108,27 +135,10 @@ Guidelines:
     parts: [{ text: `[LANGUAGE INSTRUCTION: The message below is your ONLY source for language detection. Respond in the exact same language as THIS message — do not use the language from any previous messages in this conversation.]\n${userMessage}` }]
   });
 
-  let response: any;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      response = await axios.post(
-        `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
-        {
-          contents,
-          systemInstruction: {
-            parts: [{ text: systemInstruction }]
-          }
-        }
-      );
-      break;
-    } catch (err: any) {
-      if (attempt < 2 && (err?.response?.status === 503 || err?.response?.status === 429)) {
-        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-        continue;
-      }
-      throw err;
-    }
-  }
+  const response = await callGemini({
+    contents,
+    systemInstruction: { parts: [{ text: systemInstruction }] }
+  });
 
   const candidate = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!candidate) {
@@ -220,10 +230,7 @@ router.post('/message', requireAuth, async (req: AuthRequest, res: Response) => 
       - Keep it short (1-2 sentences), natural, warm, specific and memorable. Do not sound like a generic robot.
       - Output ONLY the greeting text. Do not add any tags, headers, quotes, or JSON code formatting.`;
 
-      const response = await axios.post(
-        `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
-        { contents: [{ role: 'user', parts: [{ text: greetingPrompt }] }] }
-      );
+      const response = await callGemini({ contents: [{ role: 'user', parts: [{ text: greetingPrompt }] }] });
 
       let greeting = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || `Good morning ${merchant.businessName}! Let's make some sales today!`;
       greeting = greeting.replace(/^["']|["']$/g, '');
@@ -286,20 +293,17 @@ router.post('/voice', requireAuth, async (req: AuthRequest, res: Response) => {
       base64Data = parts[1];
     }
 
-    const transcriptionRes = await axios.post(
-      `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
-      {
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { inlineData: { mimeType, data: base64Data } },
-              { text: 'Transcribe the spoken audio in this file. Output ONLY the plain transcription text. Do not add any greeting, comments, explanations, formatting, or quotes.' }
-            ]
-          }
-        ]
-      }
-    );
+    const transcriptionRes = await callGemini({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType, data: base64Data } },
+            { text: 'Transcribe the spoken audio in this file. Output ONLY the plain transcription text. Do not add any greeting, comments, explanations, formatting, or quotes.' }
+          ]
+        }
+      ]
+    });
 
     const transcript = transcriptionRes.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!transcript) return res.status(400).json({ error: 'Could not transcribe voice note. Please speak clearly.' });
