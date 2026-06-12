@@ -173,8 +173,11 @@ export default function Pay() {
     }
 
     const amountCusd = localAmt / currentRate;
-    if (balance && amountCusd > parseFloat(balance.cusd)) {
-      setInstantError(`Insufficient balance. You have ${Number(balance.cusd).toFixed(2)} cUSD, need ${amountCusd.toFixed(2)} cUSD.`);
+    const GAS_BUFFER_CUSD = 0.01; // mirror the backend's gas reserve
+    if (balance && amountCusd + GAS_BUFFER_CUSD > parseFloat(balance.cusd)) {
+      const haveLocal = parseFloat(balance.cusd) * currentRate;
+      const gasLocal = GAS_BUFFER_CUSD * currentRate;
+      setInstantError(`Insufficient balance after network fees. You have ${currencySymbol}${haveLocal.toFixed(2)}; this transfer needs ${currencySymbol}${localAmt.toFixed(2)} plus ~${currencySymbol}${gasLocal.toFixed(0)} for network fees.`);
       return;
     }
 

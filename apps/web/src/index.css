@@ -67,3 +67,14 @@ html, body {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.15); }
 }
+
+/* Stop mobile browsers (esp. iOS Safari) from auto-zooming when a form field is
+   focused. They zoom in on any input with font-size < 16px and never restore it,
+   leaving the page stuck zoomed. Forcing >=16px on small screens prevents the
+   auto-zoom while keeping pinch-to-zoom available (unlike a viewport lock).
+   !important is needed to override Tailwind's text-sm/text-xs utilities. */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
