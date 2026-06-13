@@ -66,8 +66,8 @@ export default function Summary() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-        {/* Period tabs */}
+      <main className="max-w-[1200px] mx-auto p-4 md:p-8 space-y-6 w-full">
+        {/* Period tafbs */}
         <div className="flex gap-2">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
@@ -84,7 +84,7 @@ export default function Summary() {
         ) : error ? (
           <div className="bg-[#B5271E]/10 border-2 border-[#B5271E] text-[#B5271E] p-4 rounded-lg font-semibold text-sm">{error}</div>
         ) : !p || p.count === 0 ? (
-          // Empty state — real, not faked
+          
           <div className="bg-[#F2EDE4] border-2 border-dashed border-[#DDD5C5] rounded-xl p-10 text-center">
             <Receipt className="w-10 h-10 mx-auto text-[#7A6B55]/50 mb-3" />
             <p className="font-display font-bold text-[#1A1208]">No earnings recorded {meta.window} yet</p>
@@ -117,7 +117,7 @@ export default function Summary() {
               )}
             </div>
 
-            <p className="text-[10px] text-[#7A6B55]/70 text-center font-mono">Figures read directly from your transactions · always live, never AI-generated</p>
+            <p className="text-[10px] text-[#7A6B55]/70 text-center font-mono">Figures read directly from your transactions · always live.</p>
           </>
         )}
       </main>
